@@ -174,15 +174,11 @@ class Project:
     @classmethod
     def load(cls, d: Path) -> "Project":
         raw = json.loads((d / "project.json").read_text())
-        st = dict(raw.get("style", {}))
-        # projects written before speakers moved out of Style
-        legacy = [st.pop("spk0", None), st.pop("spk1", None)]
-        st = {k: v for k, v in st.items() if k in Style.__dataclass_fields__}
-        sp = raw.get("speakers")
-        if not sp:
-            d_sp = load_settings()["speakers"]
-            sp = [{"name": s["name"], "color": legacy[i] or s["color"]}
-                  for i, s in enumerate(d_sp)]
+        # unknown keys are dropped rather than passed to Style, so a project
+        # written by an older version still loads
+        st = {k: v for k, v in raw.get("style", {}).items()
+              if k in Style.__dataclass_fields__}
+        sp = raw.get("speakers") or load_settings()["speakers"]
         return cls(dir=d, source=Path(raw["source"]), rate=raw["rate"],
                    style=Style(**st), speakers=[Speaker(**s) for s in sp])
 
