@@ -75,8 +75,43 @@ def tile(size: int, margin_ratio: float = 0.16) -> Image.Image:
     return im
 
 
+# The list placeholder, in the same 16x16 language as the icon: a film frame
+# with sprocket holes. It stands in before a thumbnail arrives and stays put if
+# one never does, so a missing poster never shows as a broken image.
+PLACEHOLDER = [
+    "................",
+    ".##############.",
+    ".#.#........#.#.",
+    ".#............#.",
+    ".#...##.......#.",
+    ".#.#.####...#.#.",
+    ".#...######.#.#.",
+    ".#...######...#.",
+    ".#.#.####...#.#.",
+    ".#...##.....#.#.",
+    ".#............#.",
+    ".#.#........#.#.",
+    ".##############.",
+    "................",
+    "................",
+    "................",
+]
+DIM = (78, 92, 100, 255)          # --dimmer, so it recedes on the panel
+
+
+def placeholder(scale: int = 4) -> Image.Image:
+    im = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    px = im.load()
+    for y, row in enumerate(PLACEHOLDER):
+        for x, ch in enumerate(row):
+            if ch == "#":
+                px[x, y] = DIM
+    return im.resize((16 * scale, 16 * scale), Image.NEAREST)
+
+
 def main():
     ASSETS.mkdir(exist_ok=True)
+    placeholder(4).save(ROOT / "web" / "placeholder.png")
     art(64).save(ASSETS / "mark.png")              # flat mark, no tile
     tile(1024).save(ASSETS / "icon-1024.png")
     art(4).save(ROOT / "web" / "favicon.png")      # 64px, crisp in a tab
@@ -97,7 +132,7 @@ def main():
         print(f"寫入 {ASSETS/'app.icns'}")
     except Exception as e:
         print(f"iconutil 失敗：{e}", file=sys.stderr)
-    print(f"寫入 {ASSETS/'icon-1024.png'} 與 web/favicon.png")
+    print(f"寫入 {ASSETS/'icon-1024.png'}、web/favicon.png 與 web/placeholder.png")
 
 
 if __name__ == "__main__":
