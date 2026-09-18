@@ -64,6 +64,33 @@ class NewProject(BaseModel):
 
 
 THUMBS = Path.home() / ".diary-studio" / "thumbs"
+PROBE_CACHE = Path.home() / ".diary-studio" / "probe-cache.json"
+
+
+def _probe_cached(f: Path) -> dict:
+    """ffprobe keyed on (path, mtime, size).
+
+    Browsing probed forty files on every open, which is seconds of spinning for
+    numbers that cannot change unless the file does.
+    """
+    try:
+        cache = json.loads(PROBE_CACHE.read_text())
+    except Exception:
+        cache = {}
+    st = f.stat()
+    key = f"{f}|{int(st.st_mtime)}|{st.st_size}"
+    if key in cache:
+        return cache[key]
+    try:
+        info = probe(f)
+    except Exception:
+        info = {"duration": 0, "width": 0, "height": 0}
+    cache[key] = info
+    if len(cache) > 500:
+        cache = dict(list(cache.items())[-500:])
+    PROBE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    PROBE_CACHE.write_text(json.dumps(cache))
+    return info
 
 
 @app.get("/api/browse")
@@ -83,10 +110,7 @@ def browse():
             if f.name in seen:
                 continue
             seen.add(f.name)
-            try:
-                info = probe(f)
-            except Exception:
-                info = {"duration": 0, "width": 0, "height": 0}
+            info = _probe_cached(f)
             out.append({"path": str(f), "name": f.name,
                         "size_mb": round(f.stat().st_size / 1e6),
                         "folder": folder.name, "mtime": f.stat().st_mtime,

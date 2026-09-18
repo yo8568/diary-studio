@@ -235,9 +235,13 @@ footer .spacer{flex:1}
 .shot .dur{position:absolute;right:.35rem;bottom:.35rem;background:rgba(13,18,21,.82);
   padding:.1rem .35rem;border-radius:2px;font-size:.7rem;color:var(--fg)}
 .cap{padding:.45rem .55rem;display:flex;flex-direction:column;gap:.15rem}
-.cap b{font-weight:500;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap}
-.cap span{font-size:.7rem;color:var(--dimmer)}
+.cap b{font-weight:500;font-size:.8rem;line-height:1.35;height:1.35em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cap span{font-size:.7rem;line-height:1.35;height:1.35em;color:var(--dimmer);
+  overflow:hidden;white-space:nowrap}
+.tile.skeleton{pointer-events:none}
+.tile.skeleton .cap b,.tile.skeleton .cap span{
+  background:var(--panel-2);border-radius:2px}
 .pathrow{display:flex;gap:.5rem;align-items:center;margin-top:.8rem}
 .pathrow input{flex:1;min-width:14rem}
 
@@ -373,23 +377,30 @@ async function api(u,o){const r=await fetch(u,o);
 
 /* ---------------- picker ---------------- */
 function openPicker(){$('#picker').classList.add('on');loadFiles()}
+/* The skeleton is the real tile with its text blank, in the count we saw last
+   time: a different shape or a different number is what actually moves the page,
+   not the images — those sit in a box the aspect-ratio already reserved. */
+const tileHTML=(f)=>`<div class="shot"><div class="ph"></div>
+    <img alt="" loading="lazy">
+    ${f&&f.duration?`<span class="dur num">${mmss(f.duration)}</span>`:''}</div>
+  <div class="cap"><b>${f?esc(f.name):''}</b>
+    <span class="num">${f?`${f.folder} · ${f.size_mb} MB${f.width?` · ${f.width}×${f.height}`:''}`:''}</span></div>`;
+
 async function loadFiles(){
   const g=$('#grid');
-  g.innerHTML=Array.from({length:8},()=>
-    '<div class="tile"><div class="shot"><div class="ph"></div></div>'+
-    '<div class="cap"><b>&nbsp;</b><span>&nbsp;</span></div></div>').join('');
+  let guess=12;
+  try{guess=+localStorage.getItem('diary:filecount')||12}catch(e){}
+  g.innerHTML=Array.from({length:guess},()=>
+    `<div class="tile skeleton">${tileHTML(null)}</div>`).join('');
   let fs=[];
   try{fs=await api('/api/browse')}catch(e){g.innerHTML=`<p>讀取失敗：${e.message}</p>`;return}
+  try{localStorage.setItem('diary:filecount',fs.length)}catch(e){}
   g.innerHTML='';
   if(!fs.length){g.innerHTML='<p style="color:var(--dim)">找不到影片，用下面的欄位貼路徑。</p>';return}
   for(const f of fs){
     const b=document.createElement('button');
     b.className='tile';
-    b.innerHTML=`<div class="shot"><div class="ph"></div>
-        <img alt="" loading="lazy">
-        ${f.duration?`<span class="dur num">${mmss(f.duration)}</span>`:''}</div>
-      <div class="cap"><b>${esc(f.name)}</b>
-        <span class="num">${f.folder} · ${f.size_mb} MB${f.width?` · ${f.width}×${f.height}`:''}</span></div>`;
+    b.innerHTML=tileHTML(f);
     const im=b.querySelector('img'),ph=b.querySelector('.ph');
     im.onload=()=>{im.classList.add('in');ph.remove()};
     im.onerror=()=>{ph.style.animation='none';ph.style.opacity='.35'};
