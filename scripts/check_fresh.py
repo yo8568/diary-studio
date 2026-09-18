@@ -15,6 +15,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from playwright.sync_api import sync_playwright
 
+
+def launch(pw):
+    """The app window is WKWebView, so that is what the checks must run on.
+
+    Chrome paints a video's first frame eagerly; WebKit does not, which is how a
+    completely black preview passed every Chrome-based check.
+    """
+    import os
+    if os.environ.get("DIARY_ENGINE", "webkit") == "chrome":
+        return pw.chromium.launch(channel="chrome",
+                                  args=["--autoplay-policy=no-user-gesture-required"])
+    return pw.webkit.launch()
+
 BASE = "http://127.0.0.1:8756"
 WORK = Path.home() / ".diary-studio" / "projects"
 SRC = Path("/tmp/diary fresh (test).mp4")
@@ -38,8 +51,7 @@ def main():
 
     errs = []
     with sync_playwright() as pw:
-        b = pw.chromium.launch(channel="chrome",
-                               args=["--autoplay-policy=no-user-gesture-required"])
+        b = launch(pw)
         pg = b.new_page(viewport={"width": 1400, "height": 900})
         pg.on("pageerror", lambda e: errs.append(f"JS: {e}"))
         pg.goto(BASE + "/", wait_until="networkidle")

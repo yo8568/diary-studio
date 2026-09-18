@@ -218,19 +218,29 @@ def probe(path: Path) -> dict:
 # --------------------------------------------------------------------------- #
 
 def prepare(p: Project, progress=lambda s: None):
-    """Write the sped-up video (rotation baked in) plus mono audio for analysis."""
+    """Write the sped-up video (rotation baked in) plus mono audio for analysis.
+
+    Encoding goes to a temp name and is renamed only on success: writing
+    straight to fast.mp4 means a quit mid-encode leaves a moov-less file that
+    every later run reports as ready and plays as black.
+    """
     progress("變速編碼中")
+    tmp = p.dir / "fast.tmp.mp4"
+    common = ["-c:v", "libx264", "-preset", "medium", "-crf", "19",
+              "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+              # moov at the front, so a player gets what it needs in one read
+              "-movflags", "+faststart"]
     if p.rate == 1.0:
-        run(["ffmpeg", "-y", "-v", "error", "-i", str(p.source),
-             "-c:v", "libx264", "-preset", "medium", "-crf", "19",
-             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", str(p.fast)])
+        run(["ffmpeg", "-y", "-v", "error", "-i", str(p.source)]
+            + common + [str(tmp)])
     else:
         run(["ffmpeg", "-y", "-v", "error", "-i", str(p.source),
              "-filter_complex",
              f"[0:v]setpts=PTS/{p.rate}[v];[0:a]atempo={p.rate}[a]",
-             "-map", "[v]", "-map", "[a]", "-r", "60",
-             "-c:v", "libx264", "-preset", "medium", "-crf", "19",
-             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", str(p.fast)])
+             "-map", "[v]", "-map", "[a]", "-r", "60"]
+            + common + [str(tmp)])
+    import os
+    os.replace(tmp, p.fast)
     progress("抽音軌")
     run(["ffmpeg", "-y", "-v", "error", "-i", str(p.source), "-vn",
          "-ac", "1", "-ar", str(SR), "-c:a", "pcm_s16le", str(p.path("audio.wav"))])

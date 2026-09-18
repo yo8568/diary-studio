@@ -9,6 +9,19 @@ import sys
 import urllib.request
 from playwright.sync_api import sync_playwright
 
+
+def launch(pw):
+    """The app window is WKWebView, so that is what the checks must run on.
+
+    Chrome paints a video's first frame eagerly; WebKit does not, which is how a
+    completely black preview passed every Chrome-based check.
+    """
+    import os
+    if os.environ.get("DIARY_ENGINE", "webkit") == "chrome":
+        return pw.chromium.launch(channel="chrome",
+                                  args=["--autoplay-policy=no-user-gesture-required"])
+    return pw.webkit.launch()
+
 BASE = "http://127.0.0.1:8756"
 PID = sys.argv[1] if len(sys.argv) > 1 else "IMG_9622-279s"
 
@@ -24,8 +37,7 @@ def main():
     print(f"拖曳前: overlay_y={before['overlay_y']}  offset_x={before.get('offset_x', 0)}")
 
     with sync_playwright() as pw:
-        b = pw.chromium.launch(channel="chrome",
-                               args=["--autoplay-policy=no-user-gesture-required"])
+        b = launch(pw)
         pg = b.new_page(viewport={"width": 1400, "height": 900})
         pg.on("pageerror", lambda e: errs.append(f"JS error: {e}"))
         pg.goto(f"{BASE}/?p={PID}", wait_until="networkidle")

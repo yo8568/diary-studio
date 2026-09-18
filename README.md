@@ -66,6 +66,19 @@ app 是啟動器不是打包檔：mlx 和 torch 有好幾百 MB，而且 mlx 要
 
 改完按「套用修改」，再按「出片」。
 
+## 測試
+
+```bash
+python scripts/check_preview.py   # 字幕預覽與播放
+python scripts/check_drag.py      # 拖曳定位，並比對伺服器算圖
+python scripts/check_fresh.py     # 從一支沒開過的影片走完整流程
+```
+
+**這些檢查跑在 WebKit 上，因為 app 的視窗就是 WKWebView。** 這不是細節：
+Chrome 會主動畫出影片第一幀，WebKit 在 `preload=metadata` 下不會，所以一個
+完全黑掉的預覽可以通過所有 Chrome 測試。要用 Chrome 對照時設
+`DIARY_ENGINE=chrome`。
+
 ## 已知限制
 
 - **短插話分不出來** — 聲紋向量需要約一秒的乾淨人聲。0.4 秒的插話，1 秒的分析窗會同時吃到兩個人，判別值趨近 0。這是解析度問題，不是調參數能解決的（實測窗長 0.75/1.0/1.2 秒 × 切換代價 0.6/1.2/2.0 全部失敗）

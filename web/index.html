@@ -895,7 +895,14 @@ function endDrag(){
 cap.addEventListener('pointerup',endDrag);
 cap.addEventListener('pointercancel',endDrag);
 addEventListener('resize',layoutCap);
-vid.addEventListener('loadedmetadata',layoutCap);
+vid.addEventListener('loadedmetadata',()=>{
+  layoutCap();
+  /* WebKit (the engine behind this app's window) decodes nothing under
+     preload=metadata: readyState stops at 1 and the element paints nothing, so
+     the screen is just black. A hair of a seek makes it decode frame one.
+     preload=auto also fixes it but makes WebKit fetch the whole 300MB file. */
+  if(vid.paused&&vid.currentTime===0)vid.currentTime=0.001;
+});
 
 /* the exact frame, drawn by the same code that renders the file */
 let pt=null;

@@ -7,6 +7,19 @@ this seeks the video, lets it run, and asserts the overlay text changes.
 import sys
 from playwright.sync_api import sync_playwright
 
+
+def launch(pw):
+    """The app window is WKWebView, so that is what the checks must run on.
+
+    Chrome paints a video's first frame eagerly; WebKit does not, which is how a
+    completely black preview passed every Chrome-based check.
+    """
+    import os
+    if os.environ.get("DIARY_ENGINE", "webkit") == "chrome":
+        return pw.chromium.launch(channel="chrome",
+                                  args=["--autoplay-policy=no-user-gesture-required"])
+    return pw.webkit.launch()
+
 URL = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8756/?p=IMG_9622-279s"
 OUT = "/tmp/preview-check"
 
@@ -14,9 +27,7 @@ OUT = "/tmp/preview-check"
 def main():
     errs = []
     with sync_playwright() as pw:
-        # the installed Chrome, rather than pulling another 150MB of chromium
-        b = pw.chromium.launch(channel="chrome",
-                               args=["--autoplay-policy=no-user-gesture-required"])
+        b = launch(pw)
         pg = b.new_page(viewport={"width": 1400, "height": 900})
         pg.on("pageerror", lambda e: errs.append(f"JS error: {e}"))
         pg.on("console", lambda m: errs.append(f"console.{m.type}: {m.text}")
