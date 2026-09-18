@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Diary Studio</title>
+<link rel="icon" href="data:,">
 <style>
 /* Colour carries exactly one meaning here: which speaker. Everything else is
    greyscale, so any hue on screen is data, never decoration. */
@@ -91,8 +92,9 @@ main{flex:1;display:grid;grid-template-columns:minmax(320px,40%) 1fr;min-height:
 #caplayer{position:absolute;left:0;top:0;pointer-events:none;display:none;
   text-align:center;white-space:nowrap}
 #caplayer.on{display:block}
-#caplayer b{font-weight:500;display:inline-block}
-#caplayer .off{color:var(--capbase,#F2EDE4)}
+/* stroke under fill, the way PIL draws it — the default paints the stroke over
+   the glyph, which swallows thin CJK strokes and the text reads as near-black */
+#caplayer b{font-weight:500;display:inline-block;paint-order:stroke fill}
 #screen.busy::after{content:"";position:absolute;left:0;right:0;height:2px;
   background:linear-gradient(90deg,transparent,var(--spk1),transparent);
   animation:scanv 1.9s ease-in-out infinite}
@@ -350,7 +352,7 @@ async function open_(id,label,dur){
   PID=id;$('#srcname').textContent=label||id;
   if(dur)DUR=dur;
   try{localStorage.setItem('diary:last',id)}catch(e){}
-  try{await loadTurns();await loadTrack()}
+  try{await loadTurns();await loadTrack();await loadCues()}
     catch(e){
       $('#turns').innerHTML='<p style="padding:1.1rem;color:var(--dim);font-size:.88rem">'+
         '還沒有逐字稿。按「轉逐字稿」開始，第一次會下載語音模型。</p>';
@@ -528,7 +530,8 @@ async function pushStyle(){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({style:{spk0:$('#cA').value,spk1:$('#cB').value,
       size:+$('#cSize').value,overlay_y:+$('#cY').value,
-      grade:$('#cGrade').value}})});
+      // an unpopulated select must never silently overwrite the saved grade
+      ...($('#cGrade').value?{grade:$('#cGrade').value}:{})}})});
   applyVars();renderTurns();drawTrack();
   await loadCues();
 }
@@ -583,7 +586,7 @@ let CUES=null,CUEI=-1,RAF=null;
 
 async function loadCues(){
   try{CUES=await api(`/api/${PID}/cues`)}catch(e){CUES=null}
-  layoutCap();
+  setCap(!!CUES && $('#showcap').checked);
 }
 
 /* The render draws into a 1080x1920 frame; the page shows that frame at
@@ -626,13 +629,17 @@ function drawCap(force){
 }
 function loop(){drawCap();RAF=requestAnimationFrame(loop)}
 
-$('#showcap').onchange=e=>{
-  const on=e.target.checked;
+/* One place that turns the overlay on, so the checkbox's initial state and a
+   later click cannot disagree — the box shipped ticked while nothing ran. */
+function setCap(on){
+  $('#showcap').checked=on;
   cap.classList.toggle('on',on);
-  img.classList.remove('on');vid.style.visibility='visible';
+  img.classList.remove('on');
+  vid.style.visibility='visible';
   if(on){layoutCap();if(!RAF)loop()}
   else{cancelAnimationFrame(RAF);RAF=null;cap.innerHTML='';CUEI=-1}
-};
+}
+$('#showcap').onchange=e=>setCap(e.target.checked);
 addEventListener('resize',layoutCap);
 vid.addEventListener('loadedmetadata',layoutCap);
 
@@ -673,8 +680,7 @@ async function render(){
   await api(`/api/${PID}/render`,{method:'POST'});
   watch(()=>{
     vid.src=`/api/${PID}/video?which=final&t=${Date.now()}`;
-    $('#showcap').checked=false;cap.classList.remove('on');cap.innerHTML='';
-    cancelAnimationFrame(RAF);RAF=null;img.classList.remove('on');vid.style.visibility='visible';
+    setCap(false);
     $('#stat').textContent='出片完成';
   });
 }
