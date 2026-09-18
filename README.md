@@ -65,6 +65,16 @@ app 是啟動器不是打包檔：mlx 和 torch 有好幾百 MB，而且 mlx 要
 - **斷句靠字數不靠語意** — Whisper 的中文輸出標點很少，所以字幕塊滿 11 字就斷
 - **字型寫死 PingFang TC** — 找不到時會退回 `fc-match`
 
+## 圖示
+
+`scripts/make_icon.py` 產生 app 圖示和 favicon。圖案是一張 16×16 的點陣圖：
+16 整除 macOS 需要的每個尺寸（16/32/64/128/256/512/1024），所以每次輸出
+都是整數倍縮放，小尺寸也不會糊。改圖案就改那張字元陣列。
+
+```bash
+python scripts/make_icon.py && ./scripts/make_app.sh
+```
+
 ## 檔案放哪
 
 ```
