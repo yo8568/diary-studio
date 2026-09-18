@@ -95,7 +95,18 @@ main{flex:1;display:grid;grid-template-columns:minmax(320px,40%) 1fr;min-height:
 #caplayer.on{display:block}
 /* stroke under fill, the way PIL draws it — the default paints the stroke over
    the glyph, which swallows thin CJK strokes and the text reads as near-black */
-#caplayer b{font-weight:500;display:inline-block;paint-order:stroke fill}
+#caplayer b{font-weight:500;display:inline-block;paint-order:stroke fill;
+  pointer-events:auto;cursor:grab}
+/* only the glyphs take the pointer, so the rest of the frame and the video's
+   own controls stay clickable */
+#caplayer.dragging b{cursor:grabbing}
+#caprule{position:absolute;left:0;right:0;height:1px;background:var(--fg);
+  opacity:0;pointer-events:none;transition:opacity .12s}
+#caprule.on{opacity:.5}
+#capbadge{position:absolute;right:.4rem;padding:.15rem .4rem;border-radius:2px;
+  background:rgba(13,18,21,.85);font-size:.7rem;opacity:0;pointer-events:none;
+  transition:opacity .12s}
+#capbadge.on{opacity:1}
 #screen.busy::after{content:"";position:absolute;left:0;right:0;height:2px;
   background:linear-gradient(90deg,transparent,var(--spk1),transparent);
   animation:scanv 1.9s ease-in-out infinite}
@@ -235,6 +246,8 @@ footer .spacer{flex:1}
     <div id="screen">
       <video id="vid" controls preload="metadata" playsinline></video>
       <div id="caplayer"></div>
+      <div id="caprule"></div>
+      <div id="capbadge" class="num"></div>
       <img id="previewimg" alt="精確定格">
     </div>
 
@@ -299,6 +312,7 @@ footer .spacer{flex:1}
 </div>
 
 <script>
+const STRIP_H=200;
 let PID=null,DATA=null,STYLE=null,SPEAKERS=[],POLL=null,TRACK=null,DUR=0,T0=0;
 const $=s=>document.querySelector(s);
 const vid=$('#vid'),img=$('#previewimg'),screenEl=$('#screen');
@@ -536,6 +550,7 @@ async function pushStyle(){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({style:{
       size:+$('#cSize').value,overlay_y:+$('#cY').value,
+      offset_x:CUES?(CUES.style.offset_x||0):0,
       // an unpopulated select must never silently overwrite the saved grade
       ...($('#cGrade').value?{grade:$('#cGrade').value}:{})}})});
   const next=[0,1].map(i=>({name:$('#n'+i).value.trim()||`說話者 ${i+1}`,
@@ -550,7 +565,10 @@ async function pushStyle(){
       if(k>=0)t.speaker=DATA.names[k]});
   }
   applyVars();renderTurns();drawTrack();
+  const keep=CUES?{overlay_y:CUES.style.overlay_y,offset_x:CUES.style.offset_x}:null;
   await loadCues();
+  if(keep&&CUES)Object.assign(CUES.style,keep);
+  layoutCap();
 }
 ['c0','c1','n0','n1','cSize','cY','cGrade'].forEach(id=>$('#'+id).onchange=pushStyle);
 
@@ -627,7 +645,7 @@ function videoBox(){
 function layoutCap(){
   if(!CUES)return;
   const st=CUES.style,b=videoBox();
-  cap.style.left=`${b.x}px`;
+  cap.style.left=`${b.x+(st.offset_x||0)*(b.h/1920)}px`;
   cap.style.width=`${b.w}px`;
   // overlay_y is measured in the 1920-tall render frame
   cap.style.top=`${b.y+(st.overlay_y+40)*(b.h/1920)}px`;
@@ -667,6 +685,44 @@ function setCap(on){
   else{cancelAnimationFrame(RAF);RAF=null;cap.innerHTML='';CUEI=-1}
 }
 $('#showcap').onchange=e=>setCap(e.target.checked);
+
+/* Drag the caption where you want it. The render places a full-width strip at
+   overlay_y and centres the text inside it, so a drag is two numbers: the
+   strip's y, and the text's x offset within it. */
+const rule=$('#caprule'),badge=$('#capbadge');
+let drag=null;
+cap.addEventListener('pointerdown',e=>{
+  if(!CUES||e.target.tagName!=='B')return;
+  const b=videoBox();
+  drag={x:e.clientX,y:e.clientY,y0:CUES.style.overlay_y,x0:CUES.style.offset_x||0,
+        k:1920/b.h};
+  e.target.setPointerCapture(e.pointerId);
+  cap.classList.add('dragging');
+  rule.classList.add('on');badge.classList.add('on');
+  e.preventDefault();
+});
+cap.addEventListener('pointermove',e=>{
+  if(!drag)return;
+  const y=Math.round(drag.y0+(e.clientY-drag.y)*drag.k);
+  const x=Math.round(drag.x0+(e.clientX-drag.x)*drag.k);
+  CUES.style.overlay_y=Math.max(0,Math.min(1920-STRIP_H,y));
+  CUES.style.offset_x=Math.max(-420,Math.min(420,x));
+  layoutCap();
+  const b=videoBox();
+  rule.style.top=`${b.y+(CUES.style.overlay_y+40)*(b.h/1920)}px`;
+  badge.style.top=`${b.y+(CUES.style.overlay_y+40)*(b.h/1920)-20}px`;
+  badge.textContent=`y ${CUES.style.overlay_y}  x ${CUES.style.offset_x>=0?'+':''}${CUES.style.offset_x}`;
+});
+function endDrag(){
+  if(!drag)return;
+  drag=null;
+  cap.classList.remove('dragging');
+  rule.classList.remove('on');badge.classList.remove('on');
+  $('#cY').value=CUES.style.overlay_y;
+  pushStyle();
+}
+cap.addEventListener('pointerup',endDrag);
+cap.addEventListener('pointercancel',endDrag);
 addEventListener('resize',layoutCap);
 vid.addEventListener('loadedmetadata',layoutCap);
 

@@ -204,7 +204,7 @@ def draw_cue(cue, lit, st: Style, colors) -> Image.Image:
     shadow = _rgba(st.ink, st.shadow_alpha)
 
     widths = [d.textlength(w["text"], font=f) + st.track for w in cue["words"]]
-    x0 = (STRIP_W - (sum(widths) - st.track)) / 2
+    x0 = (STRIP_W - (sum(widths) - st.track)) / 2 + st.offset_x
 
     # ink bleeding into paper: glyphs plus stroke, blurred, dropped straight down
     sh = Image.new("RGBA", (STRIP_W, STRIP_H), (0, 0, 0, 0))

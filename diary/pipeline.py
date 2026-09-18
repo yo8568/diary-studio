@@ -45,7 +45,8 @@ class Style:
     shadow_blur: int = 11
     shadow_dy: int = 6
     shadow_alpha: int = 190
-    overlay_y: int = 1330
+    overlay_y: int = 1330          # strip position in the 1920-tall frame
+    offset_x: int = 0              # nudges the text inside the full-width strip
     max_chars: int = 11
     font_index: int = 6            # PingFang TC Medium
     grade: str = "none"            # see GRADES
