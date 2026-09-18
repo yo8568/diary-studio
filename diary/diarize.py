@@ -61,8 +61,9 @@ def save_voices(v: dict[str, np.ndarray]):
     VOICES.write_text(json.dumps({k: np.asarray(x).tolist() for k, x in v.items()}))
 
 
-def diarize(p: Project, names=("A", "B"), progress=lambda s: None) -> dict:
+def diarize(p: Project, progress=lambda s: None) -> dict:
     """Label every word, with a per-word evidence score."""
+    names = p.names
     words = json.loads(p.path("transcript.json").read_text())["words"]
     x = load_audio(p.path("audio.wav"))
     dur = len(x) / SR
@@ -133,8 +134,9 @@ def _viterbi(ev, spans):
     return out[::-1]
 
 
-def learn_voices(p: Project, names=("A", "B")):
+def learn_voices(p: Project):
     """Fold this project's corrected labels into the reference bank."""
+    names = p.names
     words = json.loads(p.path("transcript.json").read_text())["words"]
     lab = json.loads(p.path("speakers.json").read_text())["labels"]
     x = load_audio(p.path("audio.wav"))

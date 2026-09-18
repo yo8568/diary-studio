@@ -17,6 +17,7 @@
   --fg:#DFE7EA;
   --dim:#7B8B93;
   --dimmer:#4E5C64;
+  /* the two speaker colours; overwritten at runtime from the project */
   --spk0:#FDEE00;
   --spk1:#93C572;
   --alert:#FF6B4A;
@@ -158,6 +159,7 @@ footer{border-top:1px solid var(--line);background:var(--panel);
 .swatch input[type=color]{width:1.9rem;height:1.5rem;padding:0;
   border:1px solid var(--line-2);background:none;border-radius:2px}
 .swatch input[type=number]{width:4.4rem}
+.swatch input.who{width:6.2rem;font-size:.82rem;color:var(--fg)}
 footer .spacer{flex:1}
 
 /* ---------------- grade comparison ---------------- */
@@ -264,13 +266,16 @@ footer .spacer{flex:1}
 </main>
 
 <footer>
-  <div class="swatch"><input type="color" id="cA" value="#FDEE00">A</div>
-  <div class="swatch"><input type="color" id="cB" value="#93C572">B</div>
+  <div class="swatch"><input type="color" id="c0">
+    <input class="who" id="n0" placeholder="說話者 1"></div>
+  <div class="swatch"><input type="color" id="c1">
+    <input class="who" id="n1" placeholder="說話者 2"></div>
   <div class="swatch">字級<input type="number" id="cSize" value="68" min="40" max="110"></div>
   <div class="swatch">高度<input type="number" id="cY" value="1330" min="200" max="1750" step="10"></div>
   <div class="swatch">濾鏡<select id="cGrade"></select>
     <button class="ghost" id="btnGrades" title="用目前畫面比較所有濾鏡">比較</button></div>
   <div class="spacer"></div>
+  <button class="ghost" id="btnDefault" title="把目前的名字、顏色與樣式存成新專案的預設">存為預設</button>
   <button id="btnRender" class="primary" onclick="render()" disabled>出片</button>
   <button class="ghost" onclick="reveal()">在 Finder 顯示</button>
 </footer>
@@ -294,7 +299,7 @@ footer .spacer{flex:1}
 </div>
 
 <script>
-let PID=null,DATA=null,STYLE=null,POLL=null,TRACK=null,DUR=0,T0=0;
+let PID=null,DATA=null,STYLE=null,SPEAKERS=[],POLL=null,TRACK=null,DUR=0,T0=0;
 const $=s=>document.querySelector(s);
 const vid=$('#vid'),img=$('#previewimg'),screenEl=$('#screen');
 
@@ -445,7 +450,8 @@ $('#trackwrap').onclick=e=>{
 async function loadTurns(){
   DATA=await api(`/api/${PID}/turns`);
   STYLE=DATA.style;DUR=DATA.duration||DUR;
-  $('#cA').value=STYLE.spk0;$('#cB').value=STYLE.spk1;
+  SPEAKERS=DATA.speakers||DATA.names.map((n,i)=>({name:n,color:i?'#93C572':'#FDEE00'}));
+  SPEAKERS.forEach((sp,i)=>{$('#c'+i).value=sp.color;$('#n'+i).value=sp.name});
   $('#cSize').value=STYLE.size;$('#cY').value=STYLE.overlay_y;
   if($('#cGrade').options.length)$('#cGrade').value=STYLE.grade||'none';
   applyVars();renderTurns();
@@ -454,8 +460,8 @@ async function loadTurns(){
   $('#btnTr').classList.remove('primary');$('#btnTr').textContent='重轉逐字稿';
 }
 function applyVars(){
-  document.documentElement.style.setProperty('--spk0',STYLE.spk0);
-  document.documentElement.style.setProperty('--spk1',STYLE.spk1);
+  SPEAKERS.forEach((sp,i)=>
+    document.documentElement.style.setProperty(i?'--spk1':'--spk0',sp.color));
 }
 
 function renderTurns(){
@@ -528,14 +534,35 @@ async function pushStyle(){
   if(!PID||!STYLE)return;
   STYLE=await api(`/api/${PID}/style`,{method:'PUT',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({style:{spk0:$('#cA').value,spk1:$('#cB').value,
+    body:JSON.stringify({style:{
       size:+$('#cSize').value,overlay_y:+$('#cY').value,
       // an unpopulated select must never silently overwrite the saved grade
       ...($('#cGrade').value?{grade:$('#cGrade').value}:{})}})});
+  const next=[0,1].map(i=>({name:$('#n'+i).value.trim()||`說話者 ${i+1}`,
+                            color:$('#c'+i).value}));
+  if(JSON.stringify(next)!==JSON.stringify(SPEAKERS)){
+    const before=SPEAKERS.map(s=>s.name);
+    SPEAKERS=(await api(`/api/${PID}/speakers`,{method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({speakers:next})})).speakers;
+    DATA.names=SPEAKERS.map(s=>s.name);
+    DATA.turns.forEach(t=>{const k=before.indexOf(t.speaker);
+      if(k>=0)t.speaker=DATA.names[k]});
+  }
   applyVars();renderTurns();drawTrack();
   await loadCues();
 }
-['cA','cB','cSize','cY','cGrade'].forEach(id=>$('#'+id).onchange=pushStyle);
+['c0','c1','n0','n1','cSize','cY','cGrade'].forEach(id=>$('#'+id).onchange=pushStyle);
+
+$('#btnDefault').onclick=async e=>{
+  const b=e.currentTarget,was=b.textContent;
+  b.disabled=true;b.textContent='已存為預設';
+  try{
+    await api('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({speakers:SPEAKERS,style:STYLE})});
+  }catch(err){alert('存檔失敗：'+err.message);b.textContent=was}
+  setTimeout(()=>{b.textContent=was;b.disabled=false},1400);
+};
 
 const closeGrades=()=>$('#gradesheet').classList.remove('on');
 async function openGrades(){
@@ -623,7 +650,7 @@ function drawCap(force){
   const lit=c.words.filter(w=>w.start<=t).length;
   if(!force&&i===CUEI&&cap.dataset.lit==String(lit))return;
   CUEI=i;cap.dataset.lit=String(lit);
-  const accent=c.spk===0?CUES.style.spk0:CUES.style.spk1;
+  const accent=(CUES.colors||SPEAKERS.map(s=>s.color))[c.spk]||'#FFF';
   cap.innerHTML=c.words.map((w,k)=>
     `<b style="color:${k<lit?accent:CUES.style.base}">${esc(w.text)}</b>`).join('');
 }

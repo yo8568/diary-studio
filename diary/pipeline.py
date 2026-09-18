@@ -25,10 +25,18 @@ FRAME = 0.02                      # RMS envelope resolution
 # --------------------------------------------------------------------------- #
 
 @dataclass
+class Speaker:
+    """Who talks, and the colour their words light up in."""
+    name: str
+    color: str
+
+
+DEFAULT_SPEAKERS = [Speaker("A", "#FDEE00"), Speaker("B", "#93C572")]
+
+
+@dataclass
 class Style:
-    """Everything the caption look is made of."""
-    spk0: str = "#FDEE00"
-    spk1: str = "#93C572"
+    """Everything the caption look is made of, minus who is speaking."""
     base: str = "#F2EDE4"          # 生成り, not pure white
     ink: str = "#241F1B"           # 墨 - brown-black stroke
     size: int = 68
@@ -79,12 +87,54 @@ def grade_filter(style: Style) -> str:
     return GRADES.get(style.grade, {}).get("filter", "")
 
 
+SETTINGS = Path.home() / ".diary-studio" / "settings.json"
+
+
+def load_settings() -> dict:
+    """Defaults for new projects. Nothing about a particular household lives in
+    the code — names and colours come from here, and start generic."""
+    base = {"speakers": [asdict(s) for s in DEFAULT_SPEAKERS],
+            "rate": 1.05, "style": asdict(Style())}
+    if SETTINGS.exists():
+        try:
+            saved = json.loads(SETTINGS.read_text())
+            base["rate"] = saved.get("rate", base["rate"])
+            if saved.get("speakers"):
+                base["speakers"] = saved["speakers"]
+            base["style"].update(saved.get("style", {}))
+        except Exception:
+            pass
+    return base
+
+
+def save_settings(d: dict):
+    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+    cur = load_settings()
+    for k in ("speakers", "rate", "style"):
+        if k in d and d[k]:
+            if k == "style":
+                cur["style"].update(d["style"])
+            else:
+                cur[k] = d[k]
+    SETTINGS.write_text(json.dumps(cur, ensure_ascii=False, indent=1))
+    return cur
+
+
 @dataclass
 class Project:
     dir: Path
     source: Path
     rate: float = 1.05
     style: Style = field(default_factory=Style)
+    speakers: list[Speaker] = field(default_factory=lambda: list(DEFAULT_SPEAKERS))
+
+    @property
+    def names(self) -> list[str]:
+        return [s.name for s in self.speakers]
+
+    @property
+    def colors(self) -> list[str]:
+        return [s.color for s in self.speakers]
 
     @property
     def fast(self) -> Path:
@@ -98,15 +148,29 @@ class Project:
         return self.dir / name
 
     def save(self):
-        (self.dir / "project.json").write_text(json.dumps(
-            {"source": str(self.source), "rate": self.rate,
-             "style": asdict(self.style)}, ensure_ascii=False, indent=1))
+        raw = {}
+        f = self.dir / "project.json"
+        if f.exists():
+            raw = json.loads(f.read_text())
+        raw.update({"source": str(self.source), "rate": self.rate,
+                    "style": asdict(self.style),
+                    "speakers": [asdict(s) for s in self.speakers]})
+        f.write_text(json.dumps(raw, ensure_ascii=False, indent=1))
 
     @classmethod
     def load(cls, d: Path) -> "Project":
         raw = json.loads((d / "project.json").read_text())
+        st = dict(raw.get("style", {}))
+        # projects written before speakers moved out of Style
+        legacy = [st.pop("spk0", None), st.pop("spk1", None)]
+        st = {k: v for k, v in st.items() if k in Style.__dataclass_fields__}
+        sp = raw.get("speakers")
+        if not sp:
+            d_sp = load_settings()["speakers"]
+            sp = [{"name": s["name"], "color": legacy[i] or s["color"]}
+                  for i, s in enumerate(d_sp)]
         return cls(dir=d, source=Path(raw["source"]), rate=raw["rate"],
-                   style=Style(**raw["style"]))
+                   style=Style(**st), speakers=[Speaker(**s) for s in sp])
 
 
 def run(cmd: list[str]):

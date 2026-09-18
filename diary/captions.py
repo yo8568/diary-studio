@@ -53,7 +53,8 @@ def build_turns(p: Project) -> list[dict]:
     """Group words into speaker turns, carrying a confidence for each."""
     words = json.loads(p.path("transcript.json").read_text())["words"]
     sp = json.loads(p.path("speakers.json").read_text())
-    lab, ev, names = sp["labels"], sp["evidence"], sp["names"]
+    lab, ev = sp["labels"], sp["evidence"]
+    names = p.names
 
     turns = []
     for w, l, d in zip(words, lab, ev):
@@ -193,12 +194,12 @@ def build_cues(p: Project) -> list[dict]:
 # drawing
 # --------------------------------------------------------------------------- #
 
-def draw_cue(cue, lit, st: Style, names) -> Image.Image:
+def draw_cue(cue, lit, st: Style, colors) -> Image.Image:
     """One caption state: `lit` words already spoken, the rest still unlit."""
     f = _font(st.size, st.font_index)
     img = Image.new("RGBA", (STRIP_W, STRIP_H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    accent = _rgba(st.spk0 if cue["spk"] == 0 else st.spk1)
+    accent = _rgba(colors[cue["spk"] % len(colors)])
     base, ink = _rgba(st.base), _rgba(st.ink)
     shadow = _rgba(st.ink, st.shadow_alpha)
 
@@ -239,7 +240,7 @@ def preview_frame(p: Project, t: float) -> Path:
     if hit:
         c = hit[0]
         lit = sum(1 for w in c["words"] if w["start"] <= t)
-        bg.alpha_composite(draw_cue(c, lit, p.style, cues["names"]),
+        bg.alpha_composite(draw_cue(c, lit, p.style, p.colors),
                            (0, p.style.overlay_y))
     out = p.path("preview.png")
     bg.convert("RGB").save(out)
@@ -249,7 +250,6 @@ def preview_frame(p: Project, t: float) -> Path:
 def render(p: Project, progress=lambda s, f=0.0: None) -> Path:
     """Draw every caption state, then composite the overlay onto the video once."""
     cues = json.loads(p.path("cues.json").read_text())["cues"]
-    names = json.loads(p.path("cues.json").read_text())["names"]
     frames = p.path("frames")
     if frames.exists():
         shutil.rmtree(frames)
@@ -268,13 +268,13 @@ def render(p: Project, progress=lambda s, f=0.0: None) -> Path:
         ws = cue["words"]
         if ws[0]["start"] > cue["start"] + 0.02:
             path = frames / f"f{n:05d}.png"
-            draw_cue(cue, 0, p.style, names).save(path)
+            draw_cue(cue, 0, p.style, p.colors).save(path)
             entries.append((path, ws[0]["start"] - cue["start"]))
             n += 1
         for i, w in enumerate(ws):
             nxt = ws[i + 1]["start"] if i + 1 < len(ws) else cue["end"]
             path = frames / f"f{n:05d}.png"
-            draw_cue(cue, i + 1, p.style, names).save(path)
+            draw_cue(cue, i + 1, p.style, p.colors).save(path)
             entries.append((path, max(nxt - w["start"], 0.017)))
             n += 1
         cursor = cue["end"]

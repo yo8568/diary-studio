@@ -75,10 +75,19 @@ app 是啟動器不是打包檔：mlx 和 torch 有好幾百 MB，而且 mlx 要
 python scripts/make_icon.py && ./scripts/make_app.sh
 ```
 
+## 說話者與預設值
+
+說話者的名字和顏色不寫在程式裡。新專案從 `~/.diary-studio/settings.json` 取得預設，
+一開始是「A」和「B」。在底部把名字改成實際的人、調好顏色，按「存為預設」，
+之後每支新影片都會沿用。
+
+聲紋參考是用名字當索引的，所以名字定下來之後，跨影片的身份就會穩定。
+
 ## 檔案放哪
 
 ```
 ~/.diary-studio/projects/<專案>/   影片、逐字稿、字幕圖、成品
+~/.diary-studio/settings.json      說話者名字、顏色、樣式預設
 ~/.diary-studio/voices.json        學到的聲紋參考
 ~/Library/Logs/diary-studio.log    app 的執行紀錄
 ```

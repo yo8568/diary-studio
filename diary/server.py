@@ -17,6 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import captions, diarize
+from dataclasses import asdict
+
 from .pipeline import Project, Style, probe
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -170,7 +172,11 @@ def list_projects():
 
 
 @app.post("/api/projects")
-def create(req: NewProject):
+def create(req: NewProject | None = None):
+    from .pipeline import Speaker, Style, load_settings
+
+    s = load_settings()
+    rate = (req.rate if req and req.rate else s["rate"])
     src = Path(req.path).expanduser()
     if not src.exists():
         raise HTTPException(400, f"找不到檔案：{src}")
@@ -178,13 +184,62 @@ def create(req: NewProject):
     pid = f"{src.stem}-{int(info['duration'])}s"
     d = WORK / pid
     d.mkdir(parents=True, exist_ok=True)
-    p = Project(dir=d, source=src, rate=req.rate)
+    p = Project(dir=d, source=src, rate=rate, style=Style(**s["style"]),
+                speakers=[Speaker(**x) for x in s["speakers"]])
     p.save()
-    (d / "project.json").write_text(json.dumps(
-        {"source": str(src), "rate": req.rate,
-         "style": json.loads((d / "project.json").read_text())["style"],
-         "duration": info["duration"] / req.rate}, ensure_ascii=False, indent=1))
-    return {"id": pid, **info}
+    raw = json.loads((d / "project.json").read_text())
+    raw["duration"] = info["duration"] / rate
+    (d / "project.json").write_text(json.dumps(raw, ensure_ascii=False, indent=1))
+    return {"id": pid, "duration": info["duration"] / rate, **info}
+
+
+@app.get("/api/settings")
+def get_settings():
+    from .pipeline import load_settings
+    return load_settings()
+
+
+class SettingsIn(BaseModel):
+    speakers: list[dict] | None = None
+    rate: float | None = None
+    style: dict | None = None
+
+
+@app.put("/api/settings")
+def put_settings(req: SettingsIn):
+    """Save the current look and speaker names as the default for new projects."""
+    from .pipeline import save_settings
+    return save_settings({k: v for k, v in req.model_dump().items() if v})
+
+
+class SpeakersIn(BaseModel):
+    speakers: list[dict]
+
+
+@app.put("/api/{pid}/speakers")
+def put_speakers(pid: str, req: SpeakersIn):
+    """Rename or recolour this project's speakers, keeping labels attached to
+    position — the person renaming 'A' to a real name means the same voice."""
+    from .pipeline import Speaker
+
+    p = _project(pid)
+    old = p.names
+    p.speakers = [Speaker(**s) for s in req.speakers]
+    p.save()
+    for f in ("turns.json", "caption-words.json", "cues.json"):
+        path = p.path(f)
+        if not path.exists():
+            continue
+        d = json.loads(path.read_text())
+        # map by the names the file itself recorded: a project written before a
+        # rename may hold names that no longer match the project's own list
+        was = d.get("names") or old
+        idx = {n: i for i, n in enumerate(was)}
+        d["names"] = p.names
+        for t in d.get("turns", []):
+            t["speaker"] = p.names[idx.get(t["speaker"], 0) % len(p.names)]
+        path.write_text(json.dumps(d, ensure_ascii=False, indent=1))
+    return {"speakers": [{"name": s.name, "color": s.color} for s in p.speakers]}
 
 
 @app.post("/api/{pid}/transcribe")
@@ -214,8 +269,11 @@ def get_turns(pid: str):
     if not f.exists():
         raise HTTPException(409, "尚未產生逐字稿")
     d = json.loads(f.read_text())
-    d["style"] = json.loads(p.path("project.json").read_text())["style"]
-    d["duration"] = json.loads(p.path("project.json").read_text()).get("duration")
+    raw = json.loads(p.path("project.json").read_text())
+    d["names"] = p.names
+    d["speakers"] = [{"name": x.name, "color": x.color} for x in p.speakers]
+    d["style"] = asdict(p.style)          # normalised, without legacy keys
+    d["duration"] = raw.get("duration")
     return d
 
 
@@ -239,10 +297,12 @@ class StyleIn(BaseModel):
 @app.put("/api/{pid}/style")
 def put_style(pid: str, req: StyleIn):
     p = _project(pid)
-    raw = json.loads(p.path("project.json").read_text())
-    raw["style"].update(req.style)
-    p.path("project.json").write_text(json.dumps(raw, ensure_ascii=False, indent=1))
-    return raw["style"]
+    fields = Style.__dataclass_fields__
+    for k, v in req.style.items():
+        if k in fields:
+            setattr(p.style, k, v)
+    p.save()                               # also drops any legacy keys on disk
+    return asdict(p.style)
 
 
 @app.get("/api/grades")
@@ -255,6 +315,8 @@ def grades():
 def grade_strip(pid: str, t: float):
     """One frame through every grade, side by side — picking a look from names
     alone is guesswork, and each strip costs about a second."""
+    from dataclasses import asdict
+
     from PIL import Image
     from .pipeline import GRADES, Style, grade_filter
 
@@ -263,8 +325,7 @@ def grade_strip(pid: str, t: float):
     for k, v in GRADES.items():
         if k == "lut" and not p.style.lut:
             continue
-        st = Style(**{**json.loads(p.path("project.json").read_text())["style"],
-                      "grade": k})
+        st = Style(**{**asdict(p.style), "grade": k})
         out = p.path(f"_g_{k}.png")
         cmd = ["ffmpeg", "-y", "-v", "error", "-ss", str(t), "-i", str(p.fast)]
         f = grade_filter(st)
@@ -305,7 +366,8 @@ def cues(pid: str):
             raise HTTPException(409, "尚未產生字幕")
         captions.build_cues(p)
     d = json.loads(f.read_text())
-    d["style"] = json.loads(p.path("project.json").read_text())["style"]
+    d["style"] = asdict(p.style)
+    d["colors"] = p.colors
     return d
 
 
