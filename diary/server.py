@@ -27,6 +27,52 @@ WORK.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Diary Studio")
 
+# Folders the app is allowed to read source video from. Everything outside is
+# refused: without this, /api/thumb turns any media file on the machine into a
+# JPEG anyone who can reach the port may fetch.
+MEDIA_ROOTS = [Path.home() / "Downloads", Path.home() / "Movies",
+               Path.home() / "Desktop", Path.home() / "Pictures",
+               WORK]
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+
+
+def _inside_roots(f: Path) -> bool:
+    try:
+        r = f.resolve()
+    except Exception:
+        return False
+    return any(r == root.resolve() or root.resolve() in r.parents
+               for root in MEDIA_ROOTS if root.exists())
+
+
+def _checked_path(raw: str) -> Path:
+    f = Path(raw).expanduser()
+    if not _inside_roots(f):
+        raise HTTPException(403, "只能讀取 Downloads、Movies、Desktop、Pictures 內的檔案")
+    if not f.exists():
+        raise HTTPException(404, "找不到檔案")
+    return f
+
+
+@app.middleware("http")
+async def guard(request, call_next):
+    """Keep this server answering only to the machine it runs on.
+
+    It binds 127.0.0.1, but that alone does not stop DNS rebinding: a page can
+    point its own domain at 127.0.0.1 and then read responses as same-origin.
+    Checking Host closes that, and checking Origin stops a plain cross-site
+    request from driving the app.
+    """
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0]
+    if host not in ALLOWED_HOSTS:
+        return JSONResponse({"detail": "invalid host"}, status_code=421)
+    origin = request.headers.get("origin")
+    if origin:
+        from urllib.parse import urlparse
+        if urlparse(origin).hostname not in ALLOWED_HOSTS:
+            return JSONResponse({"detail": "cross-origin refused"}, status_code=403)
+    return await call_next(request)
+
 JOB = {"running": False, "step": "", "fraction": 0.0, "error": None, "done": None}
 
 
@@ -50,7 +96,11 @@ def _progress(step: str, fraction: float = 0.0):
 
 
 def _project(pid: str) -> Project:
+    if not pid or "/" in pid or "\\" in pid or pid.startswith("."):
+        raise HTTPException(400, "專案名稱不合法")
     d = WORK / pid
+    if WORK.resolve() not in d.resolve().parents:
+        raise HTTPException(400, "專案名稱不合法")
     if not (d / "project.json").exists():
         raise HTTPException(404, "找不到專案")
     return Project.load(d)
@@ -135,9 +185,7 @@ def browse():
 @app.get("/api/thumb")
 def thumb(path: str):
     """Poster frame, sampled a little way in so it is not a black first frame."""
-    src = Path(path).expanduser()
-    if not src.exists():
-        raise HTTPException(404, "找不到檔案")
+    src = _checked_path(path)
     THUMBS.mkdir(parents=True, exist_ok=True)
     key = f"{abs(hash((str(src), src.stat().st_mtime)))}.jpg"
     out = THUMBS / key
@@ -212,9 +260,7 @@ def create(req: NewProject | None = None):
 
     s = load_settings()
     rate = (req.rate if req and req.rate else s["rate"])
-    src = Path(req.path).expanduser()
-    if not src.exists():
-        raise HTTPException(400, f"找不到檔案：{src}")
+    src = _checked_path(req.path)
     info = probe(src)
     pid = f"{_slug(src.stem)}-{int(info['duration'])}s"
     d = WORK / pid

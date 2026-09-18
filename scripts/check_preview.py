@@ -20,11 +20,26 @@ def launch(pw):
                                   args=["--autoplay-policy=no-user-gesture-required"])
     return pw.webkit.launch()
 
-URL = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8756/?p=IMG_9622-279s"
+BASE = "http://127.0.0.1:8756"
+
+
+def first_project():
+    """Whatever project this machine has, rather than one particular id."""
+    import json, urllib.request
+    with urllib.request.urlopen(BASE + "/api/projects", timeout=15) as r:
+        ps = [p for p in json.loads(r.read()) if p["has_transcript"]]
+    if not ps:
+        print("沒有已轉逐字稿的專案可測"); sys.exit(1)
+    return ps[0]["id"]
+
+
+URL = sys.argv[1] if len(sys.argv) > 1 else None
 OUT = "/tmp/preview-check"
 
 
 def main():
+    global URL
+    URL = URL or f"{BASE}/?p={first_project()}"
     errs = []
     with sync_playwright() as pw:
         b = launch(pw)

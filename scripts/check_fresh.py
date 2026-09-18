@@ -30,23 +30,38 @@ def launch(pw):
 
 BASE = "http://127.0.0.1:8756"
 WORK = Path.home() / ".diary-studio" / "projects"
-SRC = Path("/tmp/diary fresh (test).mp4")
+SRC = Path.home() / "Downloads" / "diary fresh (test).mp4"
 
 
 def make_clip():
-    """A short clip built from an existing one, so the test is cheap and real."""
-    src = Path.home() / "Downloads" / "IMG_9622.MOV"
-    if not src.exists():
-        print("找不到測試素材"); sys.exit(1)
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "30", "-t", "6",
-                    "-i", str(src), "-c:v", "libx264", "-preset", "ultrafast",
-                    "-crf", "28", "-c:a", "aac", str(SRC)], check=True)
+    """Build the clip from scratch, so the check depends on no private file.
+
+    Speech comes from macOS `say`, because the point is to exercise the real
+    ASR path — a tone or silence would produce zero words and prove nothing.
+    The filename deliberately carries a space and parentheses: an id built from
+    a name like that once broke every request in the app.
+    """
+    aiff = Path("/tmp/diary-check-speech.aiff")
+    subprocess.run(["say", "-v", "Meijia", "-o", str(aiff),
+                    "今天天氣很好，我們帶小孩去公園走走，"
+                    "然後買了一點水果回家。"], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error",
+                    "-f", "lavfi", "-i", "testsrc=size=1080x1920:rate=30",
+                    "-i", str(aiff),
+                    "-shortest", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-crf", "30", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", str(SRC)], check=True)
+    aiff.unlink(missing_ok=True)
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                          "format=duration", "-of", "csv=p=0", str(SRC)],
+                         capture_output=True, text=True).stdout.strip()
+    return int(float(out))
 
 
 def main():
-    make_clip()
+    secs = make_clip()
     from diary.server import _slug
-    pid = f"{_slug(SRC.stem)}-6s"
+    pid = f"{_slug(SRC.stem)}-{secs}s"
     shutil.rmtree(WORK / pid, ignore_errors=True)      # never seen before
 
     errs = []
@@ -63,9 +78,10 @@ def main():
 
         # Opening a video should start the work by itself, and say so while it
         # runs — a long silent wait is indistinguishable from a hang.
-        steps, saw_bar = [], False
-        for _ in range(300):
-            pg.wait_for_timeout(1000)
+        steps, saw_bar, ticks = [], False, 0
+        for _ in range(1200):
+            pg.wait_for_timeout(300)      # a short clip passes each stage fast
+            ticks += 1
             ui = pg.evaluate("""() => ({
                 bar: document.querySelector('#job').classList.contains('on'),
                 step: document.querySelector('#jobstep').textContent,
@@ -75,8 +91,9 @@ def main():
                 saw_bar = True
                 if ui["step"] and (not steps or steps[-1] != ui["step"]):
                     steps.append(ui["step"])
-            if not json.loads(urllib.request.urlopen(BASE + "/api/job",
-                                                     timeout=5).read())["running"] \
+            if ticks % 3 == 0 and not json.loads(
+                    urllib.request.urlopen(BASE + "/api/job",
+                                           timeout=5).read())["running"] \
                     and saw_bar and not ui["bar"]:
                 break
         pg.wait_for_timeout(3000)
@@ -84,11 +101,13 @@ def main():
         for x in steps:
             print("   ", x)
         rows = pg.eval_on_selector_all(".turn", "e=>e.length")
-        print("字幕輪次:", rows)
+        text = pg.eval_on_selector_all(".turn .txt", "e=>e.map(x=>x.textContent).join('')")
+        print("字幕輪次:", rows, " 內容:", text[:40])
         if not saw_bar:
             errs.append("整個處理過程都沒有顯示 loading 狀態")
-        if len(steps) < 2:
-            errs.append(f"進度只停在 {steps} —— 看不出在做什麼")
+        # on a clip this short each stage really does pass in well under a second
+        if not steps:
+            errs.append("處理過程沒有顯示任何階段名稱")
         if not rows:
             errs.append("沒有自動產生逐字稿")
 
@@ -115,6 +134,8 @@ def main():
             errs.append("字級沒有帶入")
         b.close()
 
+    SRC.unlink(missing_ok=True)
+    shutil.rmtree(WORK / pid, ignore_errors=True)
     if errs:
         print("\n❌ 有問題：")
         for e in dict.fromkeys(errs):

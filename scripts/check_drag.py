@@ -23,7 +23,20 @@ def launch(pw):
     return pw.webkit.launch()
 
 BASE = "http://127.0.0.1:8756"
-PID = sys.argv[1] if len(sys.argv) > 1 else "IMG_9622-279s"
+BASE = "http://127.0.0.1:8756"
+
+
+def first_project():
+    """Whatever project this machine has, rather than one particular id."""
+    import json, urllib.request
+    with urllib.request.urlopen(BASE + "/api/projects", timeout=15) as r:
+        ps = [p for p in json.loads(r.read()) if p["has_transcript"]]
+    if not ps:
+        print("沒有已轉逐字稿的專案可測"); sys.exit(1)
+    return ps[0]["id"]
+
+
+PID = sys.argv[1] if len(sys.argv) > 1 else None
 
 
 def style():
@@ -32,6 +45,8 @@ def style():
 
 
 def main():
+    global PID
+    PID = PID or first_project()
     errs = []
     before = style()
     print(f"拖曳前: overlay_y={before['overlay_y']}  offset_x={before.get('offset_x', 0)}")
