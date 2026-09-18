@@ -5,212 +5,350 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Diary Studio</title>
 <style>
+/* Colour carries exactly one meaning here: which speaker. Everything else is
+   greyscale, so any hue on screen is data, never decoration. */
 :root{
-  --paper:#F2EDE4;        /* 生成り - the same base the captions use */
-  --paper-2:#E8E1D4;
-  --sumi:#241F1B;         /* 墨 */
-  --sumi-soft:#5A524A;
+  --bg:#0D1215;            /* deep graphite-blue: instrument, not hacker-black */
+  --panel:#131B1F;
+  --panel-2:#182328;
+  --line:#243138;
+  --line-2:#33444C;
+  --fg:#DFE7EA;
+  --dim:#7B8B93;
+  --dimmer:#4E5C64;
   --spk0:#FDEE00;
   --spk1:#93C572;
-  --rule:#D5CCBC;
-  --warn:#C0562F;
+  --alert:#FF6B4A;
+  --r:3px;
   font-size:15px;
 }
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
-  margin:0; background:var(--paper); color:var(--sumi);
-  font-family:"PingFang TC","Hiragino Sans",-apple-system,system-ui,sans-serif;
-  -webkit-font-smoothing:antialiased;
-  display:flex; flex-direction:column;
+  margin:0;background:var(--bg);color:var(--fg);
+  font-family:"PingFang TC","Hiragino Sans",Inter,-apple-system,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden;
 }
-button{font:inherit;color:inherit;cursor:pointer;border:1px solid var(--sumi);
-  background:transparent;border-radius:2px;padding:.4em .9em;transition:background .12s}
-button:hover:not(:disabled){background:var(--sumi);color:var(--paper)}
+.num{font-variant-numeric:tabular-nums}
+
+button{font:inherit;color:var(--fg);cursor:pointer;background:transparent;
+  border:1px solid var(--line-2);border-radius:var(--r);padding:.42em .95em;
+  transition:border-color .12s,background .12s,color .12s}
+button:hover:not(:disabled){border-color:var(--fg);background:var(--panel-2)}
 button:disabled{opacity:.35;cursor:default}
-button.primary{background:var(--sumi);color:var(--paper)}
-button.primary:hover:not(:disabled){background:#000}
-button.ghost{border-color:transparent;padding:.2em .5em;color:var(--sumi-soft)}
-button.ghost:hover{background:var(--paper-2);color:var(--sumi)}
-input,select{font:inherit;color:inherit;background:transparent;
-  border:1px solid var(--rule);border-radius:2px;padding:.35em .5em}
+button.primary{background:var(--fg);color:var(--bg);border-color:var(--fg);font-weight:600}
+button.primary:hover:not(:disabled){background:#fff;border-color:#fff}
+button.ghost{border-color:transparent;color:var(--dim);padding:.25em .55em}
+button.ghost:hover:not(:disabled){color:var(--fg);background:var(--panel-2)}
+button:focus-visible,[contenteditable]:focus-visible,input:focus-visible{
+  outline:2px solid var(--spk1);outline-offset:1px}
+input,select{font:inherit;color:var(--fg);background:var(--panel);
+  border:1px solid var(--line-2);border-radius:var(--r);padding:.35em .5em}
 
-/* ---------- chrome ---------- */
-header{display:flex;align-items:baseline;gap:1.2rem;padding:.9rem 1.4rem;
-  border-bottom:1px solid var(--rule);flex-wrap:wrap}
-h1{font-size:1.05rem;font-weight:600;margin:0;letter-spacing:.06em}
-h1 em{font-style:normal;color:var(--sumi-soft);font-weight:400}
+/* ---------------- header ---------------- */
+header{display:flex;align-items:center;gap:1rem;padding:.7rem 1.1rem;
+  border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+.mark{display:flex;align-items:baseline;gap:.5rem}
+.mark b{font-size:.95rem;font-weight:600;letter-spacing:.09em}
+.mark span{font-size:.78rem;color:var(--dimmer)}
 header .spacer{flex:1}
-#jobbar{padding:.5rem 1.4rem;border-bottom:1px solid var(--rule);
-  background:var(--paper-2);display:none;align-items:center;gap:.8rem}
-#jobbar.on{display:flex}
-#jobtrack{flex:1;height:2px;background:var(--rule);position:relative;overflow:hidden}
-#jobfill{position:absolute;inset:0 100% 0 0;background:var(--sumi);transition:right .3s}
+#srcname{font-size:.82rem;color:var(--dim);max-width:24ch;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
 
-main{flex:1;display:grid;grid-template-columns:minmax(300px,38%) 1fr;min-height:0}
-@media (max-width:900px){main{grid-template-columns:1fr;overflow:auto}}
+/* ---------------- job readout ---------------- */
+#job{height:0;overflow:hidden;border-bottom:1px solid transparent;
+  transition:height .18s ease;background:var(--panel)}
+#job.on{height:46px;border-bottom-color:var(--line)}
+#jobinner{display:flex;align-items:center;gap:.9rem;padding:.55rem 1.1rem;height:46px}
+#jobstep{font-size:.84rem;min-width:9rem}
+#jobpct,#jobtime{font-size:.78rem;color:var(--dim)}
+#sweep{flex:1;height:3px;background:var(--line);position:relative;overflow:hidden;
+  border-radius:2px}
+#sweepfill{position:absolute;inset:0 100% 0 0;background:var(--fg);
+  transition:right .35s ease}
+#sweep::after{content:"";position:absolute;inset:0;width:34%;
+  background:linear-gradient(90deg,transparent,rgba(147,197,114,.55),transparent);
+  animation:scan 1.5s linear infinite}
+@keyframes scan{from{transform:translateX(-120%)}to{transform:translateX(420%)}}
 
-/* ---------- left: video ---------- */
-#stage{padding:1.2rem;border-right:1px solid var(--rule);display:flex;
-  flex-direction:column;gap:.8rem;min-height:0}
-#vidwrap{position:relative;background:#111;border-radius:3px;overflow:hidden;
-  aspect-ratio:9/16;max-height:52vh;margin:0 auto;width:100%}
-#vidwrap video,#vidwrap img{position:absolute;inset:0;width:100%;height:100%;
+/* ---------------- layout ---------------- */
+main{flex:1;display:grid;grid-template-columns:minmax(320px,40%) 1fr;min-height:0}
+@media (max-width:920px){main{grid-template-columns:1fr;overflow:auto}}
+
+#stage{padding:1rem;border-right:1px solid var(--line);display:flex;
+  flex-direction:column;gap:.7rem;min-height:0}
+/* The screen fills whatever the column has left, and the portrait footage
+   letterboxes inside it — a fixed aspect box left dead space below. */
+#screen{position:relative;background:#000;border:1px solid var(--line);
+  border-radius:var(--r);overflow:hidden;flex:1;min-height:180px;width:100%}
+#screen video,#screen img{position:absolute;inset:0;width:100%;height:100%;
   object-fit:contain;display:block}
-#previewimg{display:none}
-#stage .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
-#tc{font-variant-numeric:tabular-nums;color:var(--sumi-soft);font-size:.85rem}
+#screen #previewimg{display:none}
+#screen #previewimg.on{display:block}
+#screen.busy::after{content:"";position:absolute;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--spk1),transparent);
+  animation:scanv 1.9s ease-in-out infinite}
+@keyframes scanv{0%{top:0;opacity:0}12%{opacity:1}88%{opacity:1}100%{top:100%;opacity:0}}
 
-/* ---------- right: turns ---------- */
+/* the one loud element: loudness over time, coloured by who holds it */
+#trackwrap{position:relative;height:56px;border:1px solid var(--line);
+  border-radius:var(--r);background:var(--panel);overflow:hidden;cursor:crosshair}
+#track{display:block;width:100%;height:100%}
+#playhead{position:absolute;top:0;bottom:0;width:1px;background:var(--fg);
+  left:0;pointer-events:none;box-shadow:0 0 6px rgba(223,231,234,.7)}
+#trackwrap .empty{position:absolute;inset:0;display:grid;place-items:center;
+  color:var(--dimmer);font-size:.78rem}
+
+.controls{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}
+.controls .spacer{flex:1}
+#tc{font-size:.82rem;color:var(--dim)}
+label.toggle{font-size:.8rem;color:var(--dim);display:flex;align-items:center;gap:.35rem}
+
+/* ---------------- turns ---------------- */
 #editor{display:flex;flex-direction:column;min-height:0}
-#editorhead{padding:.8rem 1.2rem;border-bottom:1px solid var(--rule);
-  display:flex;gap:.7rem;align-items:center;flex-wrap:wrap}
-#turns{overflow:auto;padding:.4rem 0 3rem;flex:1}
-.turn{display:grid;grid-template-columns:5.6rem 1fr auto;gap:.7rem;
-  padding:.55rem 1.2rem;border-bottom:1px solid var(--rule);align-items:start}
-.turn.active{background:var(--paper-2)}
-.turn .meta{display:flex;flex-direction:column;gap:.25rem}
-.spk{border:none;border-radius:2px;padding:.2em .55em;font-size:.82rem;
-  font-weight:600;text-align:center;color:var(--sumi)}
+#etop{padding:.65rem 1rem;border-bottom:1px solid var(--line);display:flex;
+  gap:.6rem;align-items:center;flex-wrap:wrap;background:var(--panel)}
+#etop .spacer{flex:1}
+#estat{font-size:.78rem;color:var(--dim)}
+#turns{overflow:auto;flex:1;padding-bottom:3rem}
+.turn{display:grid;grid-template-columns:5.2rem 1fr auto;gap:.7rem;
+  padding:.5rem 1rem;border-bottom:1px solid var(--line);align-items:start}
+.turn.active{background:var(--panel-2)}
+.meta{display:flex;flex-direction:column;gap:.3rem;align-items:flex-start}
+.spk{border:none;border-radius:2px;padding:.15em .5em;font-size:.78rem;
+  font-weight:700;color:#0D1215;width:100%;text-align:center}
 .spk.s0{background:var(--spk0)}
 .spk.s1{background:var(--spk1)}
-.tm{font-size:.72rem;color:var(--sumi-soft);font-variant-numeric:tabular-nums;
-  background:none;border:none;text-align:left;padding:0}
-.tm:hover{text-decoration:underline}
-.txt{border:none;outline:none;line-height:1.75;padding:.1rem 0;white-space:pre-wrap;
-  word-break:break-word}
-.txt:focus{background:#fff;box-shadow:0 0 0 1px var(--rule)}
-.turn .tools{display:flex;gap:.15rem;opacity:0;transition:opacity .12s}
+.tm{font-size:.7rem;color:var(--dim);background:none;border:none;padding:0}
+.tm:hover{color:var(--fg);background:none;border-color:transparent}
+/* confidence as a signal bar, not a warning glyph */
+.sig{width:100%;height:2px;background:var(--line);position:relative}
+.sig i{position:absolute;inset:0 auto 0 0;background:var(--dimmer)}
+.turn.low .sig i{background:var(--alert)}
+.turn.low .spk{box-shadow:inset 0 0 0 1px var(--alert)}
+.txt{border:none;outline:none;line-height:1.8;font-size:1rem;padding:.05rem 0;
+  white-space:pre-wrap;word-break:break-word}
+.txt:focus{background:var(--panel-2);box-shadow:0 0 0 1px var(--line-2)}
+.tools{display:flex;gap:.1rem;opacity:0;transition:opacity .12s}
 .turn:hover .tools,.turn:focus-within .tools{opacity:1}
-.turn.low .tm::after{content:" ⚠";color:var(--warn)}
 
-/* ---------- footer ---------- */
-footer{border-top:1px solid var(--rule);padding:.8rem 1.4rem;display:flex;
-  gap:1.2rem;align-items:center;flex-wrap:wrap}
-.swatch{display:flex;align-items:center;gap:.45rem;font-size:.88rem}
-.swatch input[type=color]{width:2rem;height:1.6rem;padding:0;border:1px solid var(--rule)}
+/* skeleton while the list loads */
+.skel{padding:.5rem 1rem;border-bottom:1px solid var(--line);display:grid;
+  grid-template-columns:5.2rem 1fr;gap:.7rem}
+.skel div{height:.85rem;border-radius:2px;
+  background:linear-gradient(90deg,var(--panel) 25%,var(--panel-2) 37%,var(--panel) 63%);
+  background-size:400% 100%;animation:shim 1.3s ease-in-out infinite}
+.skel div:nth-child(2){height:2.4rem}
+@keyframes shim{0%{background-position:100% 0}100%{background-position:0 0}}
+
+/* ---------------- footer ---------------- */
+footer{border-top:1px solid var(--line);background:var(--panel);
+  padding:.65rem 1.1rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.swatch{display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--dim)}
+.swatch input[type=color]{width:1.9rem;height:1.5rem;padding:0;
+  border:1px solid var(--line-2);background:none;border-radius:2px}
+.swatch input[type=number]{width:4.4rem}
 footer .spacer{flex:1}
 
-/* ---------- picker ---------- */
-#picker{position:fixed;inset:0;background:rgba(242,237,228,.97);z-index:10;
-  display:flex;flex-direction:column;padding:2.5rem 2rem;gap:1rem;overflow:auto}
-#picker h2{margin:0;font-size:1.3rem;font-weight:600}
-#picker p{margin:0;color:var(--sumi-soft);max-width:46ch;line-height:1.7}
-.filelist{display:flex;flex-direction:column;gap:.1rem;margin-top:.6rem}
-.filerow{display:grid;grid-template-columns:1fr auto auto;gap:1rem;padding:.55rem .7rem;
-  border:1px solid transparent;border-bottom-color:var(--rule);text-align:left;
-  background:none;border-radius:0}
-.filerow:hover{background:var(--paper-2);color:inherit}
-.filerow .sub{color:var(--sumi-soft);font-size:.82rem;font-variant-numeric:tabular-nums}
-.hint{font-size:.82rem;color:var(--sumi-soft)}
+/* ---------------- picker ---------------- */
+#picker{position:fixed;inset:0;background:var(--bg);z-index:20;display:none;
+  flex-direction:column;padding:1.6rem 1.8rem;gap:1rem;overflow:auto}
+#picker.on{display:flex}
+#picker h2{margin:0;font-size:1.15rem;font-weight:600;letter-spacing:.04em}
+#picker p{margin:0;color:var(--dim);max-width:52ch;line-height:1.7;font-size:.88rem}
+.grid{display:grid;gap:.8rem;margin-top:.4rem;
+  grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+.tile{padding:0;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
+  background:var(--panel);text-align:left;display:flex;flex-direction:column}
+.tile:hover{border-color:var(--fg);background:var(--panel)}
+.shot{position:relative;aspect-ratio:3/4;background:var(--panel-2);overflow:hidden}
+.shot img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;
+  transition:opacity .25s}
+.shot img.in{opacity:1}
+.shot .ph{position:absolute;inset:0;
+  background:linear-gradient(90deg,var(--panel) 25%,var(--panel-2) 37%,var(--panel) 63%);
+  background-size:400% 100%;animation:shim 1.3s ease-in-out infinite}
+.shot .dur{position:absolute;right:.35rem;bottom:.35rem;background:rgba(13,18,21,.82);
+  padding:.1rem .35rem;border-radius:2px;font-size:.7rem;color:var(--fg)}
+.cap{padding:.45rem .55rem;display:flex;flex-direction:column;gap:.15rem}
+.cap b{font-weight:500;font-size:.8rem;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.cap span{font-size:.7rem;color:var(--dimmer)}
+.pathrow{display:flex;gap:.5rem;align-items:center;margin-top:.8rem}
+.pathrow input{flex:1;min-width:14rem}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::after{animation:none!important;transition:none!important}
+}
 </style>
 </head>
 <body>
 
 <header>
-  <h1>Diary Studio <em id="projname"></em></h1>
+  <div class="mark"><b>DIARY STUDIO</b><span id="srcname">尚未選擇影片</span></div>
   <div class="spacer"></div>
-  <span class="hint" id="stat"></span>
+  <span id="stat" style="font-size:.78rem;color:var(--dim)"></span>
   <button class="ghost" onclick="openPicker()">換影片</button>
 </header>
 
-<div id="jobbar">
+<div id="job"><div id="jobinner">
   <span id="jobstep">處理中</span>
-  <div id="jobtrack"><div id="jobfill"></div></div>
-</div>
+  <div id="sweep"><div id="sweepfill"></div></div>
+  <span id="jobpct" class="num">0%</span>
+  <span id="jobtime" class="num">0:00</span>
+</div></div>
 
 <main>
   <section id="stage">
-    <div id="vidwrap">
-      <video id="vid" controls preload="metadata"></video>
+    <div id="screen">
+      <video id="vid" controls preload="metadata" playsinline></video>
       <img id="previewimg" alt="字幕預覽">
     </div>
-    <div class="row">
+
+    <div id="trackwrap">
+      <canvas id="track"></canvas>
+      <div id="playhead"></div>
+      <div class="empty" id="trackempty">轉完逐字稿後，這裡會顯示音量與換手</div>
+    </div>
+
+    <div class="controls">
       <button class="ghost" onclick="seekBy(-5)">−5s</button>
       <button class="ghost" onclick="seekBy(5)">+5s</button>
-      <span id="tc">00:00</span>
-      <span class="spacer" style="flex:1"></span>
-      <label class="hint"><input type="checkbox" id="showcap"> 看字幕預覽</label>
+      <span id="tc" class="num">00:00.00</span>
+      <span class="spacer"></span>
+      <label class="toggle"><input type="checkbox" id="showcap"> 字幕預覽</label>
     </div>
-    <p class="hint" id="tip">點左邊時間碼可以跳到那一句。改完按「套用」。</p>
   </section>
 
   <section id="editor">
-    <div id="editorhead">
-      <button id="btnTranscribe" class="primary" onclick="transcribe()">轉逐字稿</button>
+    <div id="etop">
+      <button id="btnTr" class="primary" onclick="transcribe()">轉逐字稿</button>
       <button id="btnApply" onclick="apply()" disabled>套用修改</button>
-      <span class="spacer" style="flex:1"></span>
-      <span class="hint" id="turnstat"></span>
+      <span class="spacer"></span>
+      <span id="estat"></span>
     </div>
     <div id="turns"></div>
   </section>
 </main>
 
 <footer>
-  <div class="swatch"><input type="color" id="cA" value="#FDEE00"> A</div>
-  <div class="swatch"><input type="color" id="cB" value="#93C572"> B</div>
-  <div class="swatch">字級 <input type="number" id="cSize" value="68" min="40" max="110" style="width:4.2rem"></div>
-  <div class="swatch">高度 <input type="number" id="cY" value="1330" min="200" max="1750" step="10" style="width:5.2rem"></div>
+  <div class="swatch"><input type="color" id="cA" value="#FDEE00">A</div>
+  <div class="swatch"><input type="color" id="cB" value="#93C572">B</div>
+  <div class="swatch">字級<input type="number" id="cSize" value="68" min="40" max="110"></div>
+  <div class="swatch">高度<input type="number" id="cY" value="1330" min="200" max="1750" step="10"></div>
   <div class="spacer"></div>
   <button id="btnRender" class="primary" onclick="render()" disabled>出片</button>
   <button class="ghost" onclick="reveal()">在 Finder 顯示</button>
 </footer>
 
-<div id="picker">
+<div id="picker" class="on">
   <h2>選一支影片</h2>
-  <p>從 Downloads、Movies、Desktop 找到的影片。選好之後會先做 5% 加速，再轉逐字稿。</p>
-  <div class="filelist" id="filelist"></div>
-  <div class="row" style="margin-top:1rem;display:flex;gap:.5rem;align-items:center">
-    <input id="manualpath" placeholder="或直接貼上完整路徑" style="flex:1;min-width:16rem">
+  <p>從 Downloads、Movies、Desktop 找到的影片，最新的排前面。選好之後會先加速 5%，再轉逐字稿。</p>
+  <div class="grid" id="grid"></div>
+  <div class="pathrow">
+    <input id="manualpath" placeholder="或貼上完整路徑">
     <button onclick="pick(document.getElementById('manualpath').value)">開啟</button>
   </div>
 </div>
 
 <script>
-let PID=null, DATA=null, STYLE=null, POLL=null;
+let PID=null,DATA=null,STYLE=null,POLL=null,TRACK=null,DUR=0,T0=0;
 const $=s=>document.querySelector(s);
-const vid=$('#vid'), img=$('#previewimg');
+const vid=$('#vid'),img=$('#previewimg'),screenEl=$('#screen');
 
-const tc=s=>{const m=Math.floor(s/60),x=(s%60);return `${String(m).padStart(2,'0')}:${x.toFixed(2).padStart(5,'0')}`};
-const api=async(u,o)=>{const r=await fetch(u,o);if(!r.ok)throw new Error((await r.json().catch(()=>({detail:r.statusText}))).detail);return r.json()};
+const pad=n=>String(n).padStart(2,'0');
+const tc=s=>`${pad(Math.floor(s/60))}:${(s%60).toFixed(2).padStart(5,'0')}`;
+const mmss=s=>`${Math.floor(s/60)}:${pad(Math.floor(s%60))}`;
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+async function api(u,o){const r=await fetch(u,o);
+  if(!r.ok)throw new Error((await r.json().catch(()=>({detail:r.statusText}))).detail);
+  return r.json()}
 
-/* ---------- picker ---------- */
-function openPicker(){$('#picker').style.display='flex';loadFiles()}
+/* ---------------- picker ---------------- */
+function openPicker(){$('#picker').classList.add('on');loadFiles()}
 async function loadFiles(){
-  const fs=await api('/api/browse');
-  $('#filelist').innerHTML='';
+  const g=$('#grid');
+  g.innerHTML=Array.from({length:8},()=>
+    '<div class="tile"><div class="shot"><div class="ph"></div></div>'+
+    '<div class="cap"><b>&nbsp;</b><span>&nbsp;</span></div></div>').join('');
+  let fs=[];
+  try{fs=await api('/api/browse')}catch(e){g.innerHTML=`<p>讀取失敗：${e.message}</p>`;return}
+  g.innerHTML='';
+  if(!fs.length){g.innerHTML='<p style="color:var(--dim)">找不到影片，用下面的欄位貼路徑。</p>';return}
   for(const f of fs){
     const b=document.createElement('button');
-    b.className='filerow';
-    b.innerHTML=`<span>${f.name}</span><span class="sub">${f.folder}</span><span class="sub">${f.size_mb} MB</span>`;
+    b.className='tile';
+    b.innerHTML=`<div class="shot"><div class="ph"></div>
+        <img alt="" loading="lazy">
+        ${f.duration?`<span class="dur num">${mmss(f.duration)}</span>`:''}</div>
+      <div class="cap"><b>${esc(f.name)}</b>
+        <span class="num">${f.folder} · ${f.size_mb} MB${f.width?` · ${f.width}×${f.height}`:''}</span></div>`;
+    const im=b.querySelector('img'),ph=b.querySelector('.ph');
+    im.onload=()=>{im.classList.add('in');ph.remove()};
+    im.onerror=()=>{ph.style.animation='none';ph.style.opacity='.35'};
+    im.src=`/api/thumb?path=${encodeURIComponent(f.path)}`;
     b.onclick=()=>pick(f.path);
-    $('#filelist').appendChild(b);
+    g.appendChild(b);
   }
-  if(!fs.length)$('#filelist').innerHTML='<p class="hint">找不到影片，請用下面的欄位貼路徑。</p>';
-}
-async function pick(path){
-  if(!path)return;
-  const r=await api('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({path,rate:1.05})});
-  PID=r.id; $('#projname').textContent=path.split('/').pop();
-  $('#picker').style.display='none';
-  try{ await loadTurns(); }catch(e){ $('#turns').innerHTML=
-    '<p class="hint" style="padding:1.2rem">還沒有逐字稿，按「轉逐字稿」開始。第一次會下載模型。</p>'; }
-  vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`;
 }
 
-/* ---------- job polling ---------- */
+async function pick(path){
+  if(!path)return;
+  $('#picker').classList.remove('on');
+  setBusy(true,'建立專案');
+  try{
+    const r=await api('/api/projects',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({path,rate:1.05})});
+    await open_(r.id,path.split('/').pop(),r.duration/1.05);
+  }catch(e){alert('開啟失敗：'+e.message);openPicker()}
+  setBusy(false);
+}
+
+/* Reopening where you left off matters here: a project is corrected over
+   several sittings, not finished in one. */
+async function open_(id,label,dur){
+  PID=id;$('#srcname').textContent=label||id;
+  if(dur)DUR=dur;
+  try{localStorage.setItem('diary:last',id)}catch(e){}
+  try{await loadTurns();await loadTrack()}
+    catch(e){
+      $('#turns').innerHTML='<p style="padding:1.1rem;color:var(--dim);font-size:.88rem">'+
+        '還沒有逐字稿。按「轉逐字稿」開始，第一次會下載語音模型。</p>';
+      $('#btnApply').disabled=true;$('#btnRender').disabled=true;
+    }
+    vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`;
+}
+
+/* ---------------- job ---------------- */
+function setBusy(on,step){
+  $('#job').classList.toggle('on',on);
+  screenEl.classList.toggle('busy',on);
+  if(step)$('#jobstep').textContent=step;
+  if(on){T0=Date.now();tick()}
+  document.querySelectorAll('#etop button,#btnRender').forEach(b=>{
+    if(on)b.dataset.wasOff=b.disabled?'1':'';
+    b.disabled=on?true:(b.dataset.wasOff==='1');
+  });
+}
+let TICK=null;
+function tick(){
+  clearInterval(TICK);
+  TICK=setInterval(()=>{
+    if(!$('#job').classList.contains('on'))return clearInterval(TICK);
+    $('#jobtime').textContent=mmss((Date.now()-T0)/1000);
+  },500);
+}
 function watch(after){
-  $('#jobbar').classList.add('on');
+  setBusy(true,'處理中');
   clearInterval(POLL);
   POLL=setInterval(async()=>{
-    const j=await api('/api/job');
+    let j;try{j=await api('/api/job')}catch(e){return}
     $('#jobstep').textContent=j.step||'處理中';
-    $('#jobfill').style.right=`${100-Math.round((j.fraction||0)*100)}%`;
+    const f=Math.round((j.fraction||0)*100);
+    $('#sweepfill').style.right=`${100-f}%`;$('#jobpct').textContent=`${f}%`;
     if(!j.running){
-      clearInterval(POLL);
-      $('#jobbar').classList.remove('on');
-      if(j.error){alert('失敗：'+j.error);return}
+      clearInterval(POLL);setBusy(false);
+      if(j.error)return alert('失敗：'+j.error);
       after&&after(j.done);
     }
   },700);
@@ -218,138 +356,203 @@ function watch(after){
 
 async function transcribe(){
   if(!PID)return openPicker();
+  $('#turns').innerHTML=Array.from({length:7},()=>
+    '<div class="skel"><div></div><div></div></div>').join('');
   await api(`/api/${PID}/transcribe`,{method:'POST'});
-  watch(async()=>{ await loadTurns(); vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`; });
+  watch(async()=>{
+    await loadTurns();await loadTrack();
+    vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`;
+  });
 }
 
-/* ---------- turns ---------- */
+/* ---------------- track ---------------- */
+async function loadTrack(){
+  try{TRACK=await api(`/api/${PID}/track`)}catch(e){return}
+  DUR=TRACK.duration||DUR;
+  $('#trackempty').style.display='none';
+  drawTrack();
+}
+function drawTrack(){
+  if(!TRACK)return;
+  const c=$('#track'),wrap=$('#trackwrap');
+  const dpr=devicePixelRatio||1,W=wrap.clientWidth,H=wrap.clientHeight;
+  c.width=W*dpr;c.height=H*dpr;c.style.width=W+'px';c.style.height=H+'px';
+  const g=c.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,W,H);
+  const cs=getComputedStyle(document.documentElement);
+  const col=[cs.getPropertyValue('--spk0').trim(),cs.getPropertyValue('--spk1').trim()];
+  const dim=cs.getPropertyValue('--dimmer').trim();
+  const a=TRACK.amp,n=a.length,bw=W/n;
+  for(let i=0;i<n;i++){
+    const t=i/n*DUR;
+    const seg=TRACK.segments.find(s=>t>=s.start&&t<=s.end);
+    g.fillStyle=seg?col[seg.spk]:dim;
+    g.globalAlpha=seg?(seg.conf<0.05?.45:.9):.5;
+    const h=Math.max(1,a[i]*(H-8));
+    g.fillRect(i*bw,(H-h)/2,Math.max(bw-0.5,0.6),h);
+  }
+  g.globalAlpha=1;
+}
+addEventListener('resize',()=>{drawTrack()});
+$('#trackwrap').onclick=e=>{
+  if(!DUR)return;
+  const r=e.currentTarget.getBoundingClientRect();
+  vid.currentTime=Math.max(0,Math.min(DUR,(e.clientX-r.left)/r.width*DUR));
+};
+
+/* ---------------- turns ---------------- */
 async function loadTurns(){
   DATA=await api(`/api/${PID}/turns`);
-  STYLE=DATA.style;
-  $('#cA').value=STYLE.spk0; $('#cB').value=STYLE.spk1;
-  $('#cSize').value=STYLE.size; $('#cY').value=STYLE.overlay_y;
+  STYLE=DATA.style;DUR=DATA.duration||DUR;
+  $('#cA').value=STYLE.spk0;$('#cB').value=STYLE.spk1;
+  $('#cSize').value=STYLE.size;$('#cY').value=STYLE.overlay_y;
+  applyVars();renderTurns();
+  $('#btnApply').disabled=false;$('#btnRender').disabled=false;
+  // the transcript exists now, so shipping becomes the primary action
+  $('#btnTr').classList.remove('primary');$('#btnTr').textContent='重轉逐字稿';
+}
+function applyVars(){
   document.documentElement.style.setProperty('--spk0',STYLE.spk0);
   document.documentElement.style.setProperty('--spk1',STYLE.spk1);
-  renderTurns();
-  $('#btnApply').disabled=false; $('#btnRender').disabled=false;
 }
 
 function renderTurns(){
-  const box=$('#turns'); box.innerHTML='';
-  const low=DATA.turns.filter(t=>t.confidence!==undefined&&t.confidence<0.05).length;
-  $('#turnstat').textContent=`${DATA.turns.length} 個輪次`+(low?` · ${low} 個待確認`:'');
+  const box=$('#turns');box.innerHTML='';
+  const low=DATA.turns.filter(t=>t.confidence<0.05).length;
+  $('#estat').textContent=`${DATA.turns.length} 輪次`+(low?` · ${low} 個信心不足`:'');
   DATA.turns.forEach((t,i)=>{
     const el=document.createElement('div');
-    el.className='turn'+(t.confidence<0.05?' low':'');
+    const si=Math.max(0,DATA.names.indexOf(t.speaker));
+    const conf=t.confidence??0;
+    el.className='turn'+(conf<0.05?' low':'');
     el.dataset.i=i;
-    const si=DATA.names.indexOf(t.speaker);
-    el.innerHTML=`
-      <div class="meta">
-        <button class="spk s${si}" title="點一下換人">${t.speaker}</button>
-        <button class="tm">${tc(t.start)}</button>
+    el.innerHTML=`<div class="meta">
+        <button class="spk s${si}" title="換人">${esc(t.speaker)}</button>
+        <div class="sig" title="聲紋信心 ${conf.toFixed(3)}"><i style="right:${100-Math.min(conf/0.25*100,100)}%"></i></div>
+        <button class="tm num">${tc(t.start)}</button>
       </div>
-      <div class="txt" contenteditable="plaintext-only" spellcheck="false">${escapeHtml(t.text)}</div>
+      <div class="txt" contenteditable="plaintext-only" spellcheck="false">${esc(t.text)}</div>
       <div class="tools">
-        <button class="ghost" title="在游標處切成兩段">切</button>
+        <button class="ghost" title="在游標處切開">切</button>
         <button class="ghost" title="與上一段合併">併</button>
       </div>`;
-    const [spk,tm]=el.querySelectorAll('.meta button');
+    const [spk,tm]=[el.querySelector('.spk'),el.querySelector('.tm')];
     spk.onclick=()=>{t.speaker=DATA.names[(DATA.names.indexOf(t.speaker)+1)%2];renderTurns()};
     tm.onclick=()=>{vid.currentTime=t.start;vid.play()};
     const txt=el.querySelector('.txt');
     txt.oninput=()=>{t.text=txt.textContent};
-    const [cut,merge]=el.querySelectorAll('.tools button');
+    const [cut,mrg]=el.querySelectorAll('.tools button');
     cut.onclick=()=>splitAt(i,txt);
-    merge.onclick=()=>mergeUp(i);
+    mrg.onclick=()=>mergeUp(i);
     box.appendChild(el);
   });
 }
-const escapeHtml=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-
 function splitAt(i,txt){
-  const sel=window.getSelection();
-  let at=txt.textContent.length;
+  const sel=getSelection();let at=txt.textContent.length;
   if(sel.rangeCount&&txt.contains(sel.anchorNode)){
     const r=sel.getRangeAt(0).cloneRange();
-    r.selectNodeContents(txt); r.setEnd(sel.anchorNode,sel.anchorOffset);
+    r.selectNodeContents(txt);r.setEnd(sel.anchorNode,sel.anchorOffset);
     at=r.toString().length;
   }
-  const t=DATA.turns[i], head=t.text.slice(0,at), tail=t.text.slice(at);
+  const t=DATA.turns[i],head=t.text.slice(0,at),tail=t.text.slice(at);
   if(!head||!tail)return;
-  const span=t.end-t.start, mid=t.start+span*(at/Math.max(t.text.length,1));
-  DATA.turns.splice(i,1,
-    {...t,text:head,end:mid},
+  const mid=t.start+(t.end-t.start)*(at/Math.max(t.text.length,1));
+  DATA.turns.splice(i,1,{...t,text:head,end:mid},
     {...t,text:tail,start:mid,speaker:DATA.names[(DATA.names.indexOf(t.speaker)+1)%2]});
   renderTurns();
 }
 function mergeUp(i){
   if(i===0)return;
   const a=DATA.turns[i-1],b=DATA.turns[i];
-  a.text+=b.text; a.end=b.end;
-  DATA.turns.splice(i,1); renderTurns();
+  a.text+=b.text;a.end=b.end;DATA.turns.splice(i,1);renderTurns();
 }
 
 async function apply(){
-  $('#btnApply').disabled=true;
+  const btn=$('#btnApply'),was=btn.textContent;
+  btn.disabled=true;btn.textContent='套用中';
   try{
-    const r=await api(`/api/${PID}/turns`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    const r=await api(`/api/${PID}/turns`,{method:'PUT',
+      headers:{'Content-Type':'application/json'},
       body:JSON.stringify({turns:DATA.turns,names:DATA.names})});
-    $('#stat').textContent=`已套用 · ${r.tokens} 詞`+(r.dropped_words?` · 刪掉 ${r.dropped_words} 詞不顯示`:'');
+    $('#stat').textContent=`${r.tokens} 詞`+
+      (r.dropped_words?` · 隱藏 ${r.dropped_words} 詞`:'')+` · 對齊 ${(r.similarity*100).toFixed(1)}%`;
+    await loadTrack();
     if($('#showcap').checked)refreshPreview();
   }catch(e){alert('套用失敗：'+e.message)}
-  $('#btnApply').disabled=false;
+  btn.textContent=was;btn.disabled=false;
 }
 
-/* ---------- style + preview ---------- */
+/* ---------------- style + preview ---------------- */
 async function pushStyle(){
-  if(!PID)return;
-  const s={spk0:$('#cA').value,spk1:$('#cB').value,
-    size:+$('#cSize').value,overlay_y:+$('#cY').value};
-  STYLE=await api(`/api/${PID}/style`,{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({style:s})});
-  document.documentElement.style.setProperty('--spk0',STYLE.spk0);
-  document.documentElement.style.setProperty('--spk1',STYLE.spk1);
-  renderTurns();
+  if(!PID||!STYLE)return;
+  STYLE=await api(`/api/${PID}/style`,{method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({style:{spk0:$('#cA').value,spk1:$('#cB').value,
+      size:+$('#cSize').value,overlay_y:+$('#cY').value}})});
+  applyVars();renderTurns();drawTrack();
   if($('#showcap').checked)refreshPreview();
 }
 ['cA','cB','cSize','cY'].forEach(id=>$('#'+id).onchange=pushStyle);
 
-let previewTimer=null;
+let pt=null;
 function refreshPreview(){
-  clearTimeout(previewTimer);
-  previewTimer=setTimeout(()=>{
-    img.src=`/api/${PID}/preview?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
+  clearTimeout(pt);
+  pt=setTimeout(()=>{
+    screenEl.classList.add('busy');
+    const u=`/api/${PID}/preview?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
+    img.onload=img.onerror=()=>screenEl.classList.remove('busy');
+    img.src=u;
   },180);
 }
 $('#showcap').onchange=e=>{
-  img.style.display=e.target.checked?'block':'none';
-  vid.style.visibility=e.target.checked?'hidden':'visible';
-  if(e.target.checked)refreshPreview();
+  const on=e.target.checked;
+  img.classList.toggle('on',on);
+  vid.style.visibility=on?'hidden':'visible';
+  if(on)refreshPreview();else screenEl.classList.remove('busy');
 };
 
 vid.addEventListener('timeupdate',()=>{
   $('#tc').textContent=tc(vid.currentTime);
+  if(DUR)$('#playhead').style.left=`${vid.currentTime/DUR*100}%`;
   if($('#showcap').checked&&vid.paused)refreshPreview();
   if(!DATA)return;
   const i=DATA.turns.findIndex(t=>vid.currentTime>=t.start&&vid.currentTime<=t.end);
-  document.querySelectorAll('.turn').forEach(el=>el.classList.toggle('active',+el.dataset.i===i));
+  document.querySelectorAll('.turn').forEach(el=>{
+    const on=+el.dataset.i===i;
+    if(on&&!el.classList.contains('active'))el.scrollIntoView({block:'nearest'});
+    el.classList.toggle('active',on);
+  });
 });
 vid.addEventListener('pause',()=>{if($('#showcap').checked)refreshPreview()});
-function seekBy(d){vid.currentTime=Math.max(0,vid.currentTime+d)}
+vid.addEventListener('loadedmetadata',()=>{if(vid.duration)DUR=vid.duration});
+const seekBy=d=>vid.currentTime=Math.max(0,vid.currentTime+d);
 
-/* ---------- render ---------- */
 async function render(){
   await apply();
   await api(`/api/${PID}/render`,{method:'POST'});
   watch(()=>{
     vid.src=`/api/${PID}/video?which=final&t=${Date.now()}`;
-    $('#showcap').checked=false; img.style.display='none'; vid.style.visibility='visible';
+    $('#showcap').checked=false;img.classList.remove('on');vid.style.visibility='visible';
     $('#stat').textContent='出片完成';
   });
 }
 const reveal=()=>PID&&fetch(`/api/${PID}/reveal`,{method:'POST'});
 
-openPicker();
+(async function boot(){
+  const want=new URLSearchParams(location.search).get('p')
+    ||(()=>{try{return localStorage.getItem('diary:last')}catch(e){return null}})();
+  if(want){
+    try{
+      const ps=await api('/api/projects');
+      const hit=ps.find(p=>p.id===want);
+      if(hit){
+        $('#picker').classList.remove('on');
+        await open_(hit.id,hit.source);
+        return;
+      }
+    }catch(e){}
+  }
+  loadFiles();
+})();
 </script>
 </body>
 </html>

@@ -61,6 +61,9 @@ class NewProject(BaseModel):
     rate: float = 1.05
 
 
+THUMBS = Path.home() / ".diary-studio" / "thumbs"
+
+
 @app.get("/api/browse")
 def browse():
     """Video files worth offering. A browser file input only yields a name, not a
@@ -71,19 +74,84 @@ def browse():
                    Path.home() / "Desktop"):
         if not folder.is_dir():
             continue
-        for f in sorted(folder.glob("*"), key=lambda x: -x.stat().st_mtime
-                        if x.exists() else 0):
-            if f.suffix.lower() not in (".mov", ".mp4", ".m4v"):
-                continue
-            if f.stat().st_size < 1_000_000 or f.name in seen:
+        files = [f for f in folder.glob("*")
+                 if f.suffix.lower() in (".mov", ".mp4", ".m4v")
+                 and f.is_file() and f.stat().st_size > 1_000_000]
+        for f in sorted(files, key=lambda x: -x.stat().st_mtime):
+            if f.name in seen:
                 continue
             seen.add(f.name)
+            try:
+                info = probe(f)
+            except Exception:
+                info = {"duration": 0, "width": 0, "height": 0}
             out.append({"path": str(f), "name": f.name,
                         "size_mb": round(f.stat().st_size / 1e6),
-                        "folder": folder.name})
+                        "folder": folder.name, "mtime": f.stat().st_mtime,
+                        "duration": round(info["duration"], 1),
+                        "width": info["width"], "height": info["height"]})
             if len(out) >= 40:
                 break
     return out
+
+
+@app.get("/api/thumb")
+def thumb(path: str):
+    """Poster frame, sampled a little way in so it is not a black first frame."""
+    src = Path(path).expanduser()
+    if not src.exists():
+        raise HTTPException(404, "找不到檔案")
+    THUMBS.mkdir(parents=True, exist_ok=True)
+    key = f"{abs(hash((str(src), src.stat().st_mtime)))}.jpg"
+    out = THUMBS / key
+    if not out.exists():
+        try:
+            at = max(1.0, probe(src)["duration"] * 0.12)
+        except Exception:
+            at = 1.0
+        import subprocess
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(at), "-i", str(src),
+                        "-vframes", "1", "-vf", "scale=320:-2", "-q:v", "5", str(out)],
+                       capture_output=True)
+    if not out.exists():
+        raise HTTPException(500, "縮圖產生失敗")
+    return FileResponse(out, media_type="image/jpeg",
+                        headers={"Cache-Control": "max-age=86400"})
+
+
+@app.get("/api/{pid}/track")
+def track(pid: str, points: int = 900):
+    """Loudness envelope plus who holds each stretch — the strip under the video.
+
+    Seeing turn-taking as shape is how you spot a mislabelled hand-off without
+    scrubbing through the whole clip.
+    """
+    import numpy as np
+    from .pipeline import load_audio, envelope, FRAME
+
+    p = _project(pid)
+    if not p.path("audio.wav").exists():
+        raise HTTPException(409, "尚未抽音軌")
+    db = envelope(load_audio(p.path("audio.wav")))
+    floor, top = float(np.percentile(db, 8)), float(np.percentile(db, 98))
+    lvl = np.clip((db - floor) / max(top - floor, 1e-6), 0, 1)
+
+    n = min(points, len(lvl))
+    edges = np.linspace(0, len(lvl), n + 1).astype(int)
+    amp = [round(float(lvl[a:b].max()) if b > a else 0.0, 3)
+           for a, b in zip(edges[:-1], edges[1:])]
+
+    dur = len(db) * FRAME / p.rate          # sped-up timeline, what the page shows
+    segs = []
+    tf = p.path("turns.json")
+    if tf.exists():
+        d = json.loads(tf.read_text())
+        names = d["names"]
+        for t in d["turns"]:
+            segs.append({"start": t["start"], "end": t["end"],
+                         "spk": names.index(t["speaker"]) if t["speaker"] in names else 0,
+                         "conf": t.get("confidence", 0)})
+    return {"amp": amp, "duration": dur, "segments": segs}
 
 
 @app.get("/api/projects")
