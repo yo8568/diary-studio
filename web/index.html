@@ -295,6 +295,7 @@ footer .spacer{flex:1}
       <button class="ghost" onclick="seekBy(-5)">−5s</button>
       <button class="ghost" onclick="seekBy(5)">+5s</button>
       <span id="tc" class="num">00:00.00</span>
+      <span id="diag" style="font-size:.74rem;color:var(--alert)"></span>
       <span class="spacer"></span>
       <label class="toggle"><input type="checkbox" id="showcap" checked> 字幕預覽</label>
       <button class="ghost" id="btnExact" title="用出片同一支繪圖程式算這一格">精確定格</button>
@@ -447,21 +448,26 @@ async function open_(id,label,dur){
     applyProjectStyle(st.speakers,st.style);
     if(st.duration)DUR=st.duration;
   }
-  if(st&&!st.has_transcript){
-    $('#turns').innerHTML='<p style="padding:1.1rem;color:var(--dim);font-size:.88rem">'+
-      '還沒有逐字稿。按「轉逐字稿」開始，第一次會下載語音模型。</p>';
-    $('#btnApply').disabled=true;$('#btnRender').disabled=true;
-    $('#btnTr').classList.add('primary');$('#btnTr').textContent='轉逐字稿';
-  }else{
+  if(st&&st.has_transcript){
     try{await loadTurns();await loadTrack();await loadCues()}catch(e){}
+    setVideo('fast');
+    return;
   }
-  // a brand-new project has no playable copy yet; make one before showing black
+
+  /* No transcript yet. Opening a video in this app *is* the request to caption
+     it, so the work starts on its own rather than waiting behind a button. */
+  $('#btnApply').disabled=true;$('#btnRender').disabled=true;
+  $('#btnTr').classList.add('primary');$('#btnTr').textContent='轉逐字稿';
+  $('#turns').innerHTML=Array.from({length:7},()=>
+    '<div class="skel"><div></div><div></div></div>').join('');
   if(st&&!st.has_video){
     await api(`/api/${PIDE}/prepare`,{method:'POST'});
-    watch(()=>{vid.src=`/api/${PIDE}/video?which=fast&t=${Date.now()}`});
+    await new Promise(r=>watch(r));
+    setVideo('fast');
   }else{
-    vid.src=`/api/${PIDE}/video?which=fast&t=${Date.now()}`;
+    setVideo('fast');
   }
+  transcribe();
 }
 
 /* ---------------- job ---------------- */
@@ -489,6 +495,7 @@ function watch(after){
   POLL=setInterval(async()=>{
     let j;try{j=await api('/api/job')}catch(e){return}
     $('#jobstep').textContent=j.step||'處理中';
+    $('#job').classList.add('on');
     const f=Math.round((j.fraction||0)*100);
     $('#sweepfill').style.right=`${100-f}%`;$('#jobpct').textContent=`${f}%`;
     if(!j.running){
@@ -505,8 +512,12 @@ async function transcribe(){
     '<div class="skel"><div></div><div></div></div>').join('');
   await api(`/api/${PIDE}/transcribe`,{method:'POST'});
   watch(async()=>{
-    await loadTurns();await loadTrack();await loadCues();
-    vid.src=`/api/${PIDE}/video?which=fast&t=${Date.now()}`;
+    try{
+      await loadTurns();await loadTrack();await loadCues();
+    }catch(e){
+      $('#turns').innerHTML='<p style="padding:1.1rem;color:var(--alert);font-size:.88rem">'+
+        `逐字稿產生失敗：${esc(e.message||'未知錯誤')}</p>`;
+    }
   });
 }
 
@@ -895,14 +906,40 @@ function endDrag(){
 cap.addEventListener('pointerup',endDrag);
 cap.addEventListener('pointercancel',endDrag);
 addEventListener('resize',layoutCap);
+/* Getting WebKit to decode a first frame under preload=metadata is not reliably
+   in this app's control, so it no longer depends on it. Three layers:
+   a poster that always paints, a nudge that usually works, and a watchdog that
+   escalates to preload=auto if the element is still holding nothing. */
 vid.addEventListener('loadedmetadata',()=>{
   layoutCap();
-  /* WebKit (the engine behind this app's window) decodes nothing under
-     preload=metadata: readyState stops at 1 and the element paints nothing, so
-     the screen is just black. A hair of a seek makes it decode frame one.
-     preload=auto also fixes it but makes WebKit fetch the whole 300MB file. */
-  if(vid.paused&&vid.currentTime===0)vid.currentTime=0.001;
+  if(vid.paused&&vid.currentTime===0){try{vid.currentTime=0.001}catch(e){}}
 });
+vid.addEventListener('loadeddata',()=>{showDiag()});
+vid.addEventListener('error',()=>showDiag());
+
+function showDiag(){
+  const d=$('#diag');
+  if(!d)return;
+  const e=vid.error;
+  d.textContent=vid.readyState>=2?'':
+    `影片未解碼 · readyState ${vid.readyState}${e?` · error ${e.code}`:''}`;
+}
+let escalated=false;
+function watchVideo(){
+  escalated=false;
+  setTimeout(()=>{
+    showDiag();
+    if(vid.readyState>=2||escalated||!PID)return;
+    escalated=true;                       // last resort: let it buffer properly
+    const at=vid.currentTime;
+    vid.preload='auto';
+    setVideo('fast');
+    vid.addEventListener('loadedmetadata',()=>{
+      if(at)vid.currentTime=at;
+      showDiag();
+    },{once:true});
+  },1800);
+}
 
 /* the exact frame, drawn by the same code that renders the file */
 let pt=null;
@@ -936,11 +973,20 @@ vid.addEventListener('timeupdate',()=>{
 vid.addEventListener('loadedmetadata',()=>{if(vid.duration)DUR=vid.duration});
 const seekBy=d=>vid.currentTime=Math.max(0,vid.currentTime+d);
 
+function setVideo(which){
+  if(!PID)return;
+  const stamp=Date.now();
+  vid.poster=`/api/${PIDE}/poster?_=${stamp}`;   // always paints, even at readyState 1
+  vid.preload='metadata';
+  vid.src=`/api/${PIDE}/video?which=${which}&t=${stamp}`;
+  watchVideo();
+}
+
 async function render(){
   await apply();
   await api(`/api/${PIDE}/render`,{method:'POST'});
   watch(()=>{
-    vid.src=`/api/${PIDE}/video?which=final&t=${Date.now()}`;
+    setVideo('final');
     setCap(false);
     $('#stat').textContent='出片完成';
   });

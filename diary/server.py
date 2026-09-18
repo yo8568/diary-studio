@@ -293,6 +293,30 @@ def prepare_ep(pid: str):
     return {"started": True}
 
 
+@app.get("/api/{pid}/poster")
+def poster(pid: str, t: float = 0.5):
+    """A still from the playable copy, used as the <video> poster.
+
+    Whether a given WebKit build decodes a frame under preload=metadata is not
+    something this app can control, so it stops depending on it: the poster is
+    a real image and always paints.
+    """
+    p = _project(pid)
+    if not p.fast.exists():
+        raise HTTPException(404, "尚未轉檔")
+    out = p.path("poster.jpg")
+    if not out.exists() or out.stat().st_mtime < p.fast.stat().st_mtime:
+        import subprocess
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(t),
+                        "-i", str(p.fast), "-vframes", "1",
+                        "-vf", "scale=540:-2", "-q:v", "4", str(out)],
+                       capture_output=True)
+    if not out.exists():
+        raise HTTPException(500, "無法產生")
+    return FileResponse(out, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/{pid}/state")
 def state(pid: str):
     p = _project(pid)
@@ -312,11 +336,12 @@ def transcribe(pid: str):
     def work():
         from .pipeline import prepare, transcribe as tr
         if not p.fast.exists():
+            _progress("變速編碼", 0.05)
             prepare(p, _progress)
-        _progress("辨識語音", 0.3)
+        _progress("辨識語音（首次會下載模型）", 0.25)
         r = tr(p, _progress)
-        _progress("分辨說話者", 0.8)
         r |= diarize.diarize(p, progress=_progress)
+        _progress("整理輪次", 0.96)
         captions.build_turns(p)
         _progress("完成", 1.0)
         return r

@@ -38,7 +38,7 @@ def make_clip():
     src = Path.home() / "Downloads" / "IMG_9622.MOV"
     if not src.exists():
         print("找不到測試素材"); sys.exit(1)
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "30", "-t", "8",
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "30", "-t", "6",
                     "-i", str(src), "-c:v", "libx264", "-preset", "ultrafast",
                     "-crf", "28", "-c:a", "aac", str(SRC)], check=True)
 
@@ -46,7 +46,7 @@ def make_clip():
 def main():
     make_clip()
     from diary.server import _slug
-    pid = f"{_slug(SRC.stem)}-8s"
+    pid = f"{_slug(SRC.stem)}-6s"
     shutil.rmtree(WORK / pid, ignore_errors=True)      # never seen before
 
     errs = []
@@ -61,13 +61,36 @@ def main():
         pg.wait_for_selector("#picker.on", timeout=15000)
         pg.evaluate(f"() => pick({json.dumps(str(SRC))})")
 
-        # prepare runs as a job; wait for it rather than guessing a delay
-        for _ in range(120):
+        # Opening a video should start the work by itself, and say so while it
+        # runs — a long silent wait is indistinguishable from a hang.
+        steps, saw_bar = [], False
+        for _ in range(300):
             pg.wait_for_timeout(1000)
+            ui = pg.evaluate("""() => ({
+                bar: document.querySelector('#job').classList.contains('on'),
+                step: document.querySelector('#jobstep').textContent,
+                pct: document.querySelector('#jobpct').textContent,
+                elapsed: document.querySelector('#jobtime').textContent})""")
+            if ui["bar"]:
+                saw_bar = True
+                if ui["step"] and (not steps or steps[-1] != ui["step"]):
+                    steps.append(ui["step"])
             if not json.loads(urllib.request.urlopen(BASE + "/api/job",
-                                                     timeout=5).read())["running"]:
+                                                     timeout=5).read())["running"] \
+                    and saw_bar and not ui["bar"]:
                 break
-        pg.wait_for_timeout(2500)
+        pg.wait_for_timeout(3000)
+        print("看到的進度階段:")
+        for x in steps:
+            print("   ", x)
+        rows = pg.eval_on_selector_all(".turn", "e=>e.length")
+        print("字幕輪次:", rows)
+        if not saw_bar:
+            errs.append("整個處理過程都沒有顯示 loading 狀態")
+        if len(steps) < 2:
+            errs.append(f"進度只停在 {steps} —— 看不出在做什麼")
+        if not rows:
+            errs.append("沒有自動產生逐字稿")
 
         d = pg.evaluate("""() => {
             const v = document.querySelector('#vid');

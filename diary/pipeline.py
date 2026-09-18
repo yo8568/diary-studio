@@ -287,8 +287,7 @@ def transcribe(p: Project, progress=lambda s: None) -> dict:
               "end": round(w["end"], 3)}
              for seg in r.get("segments", []) for w in seg.get("words", [])]
 
-    progress("找回被丟掉的笑聲與附和")
-    words += _recover(p, words, mlx_whisper)
+    words += _recover(p, words, mlx_whisper, progress)
     words.sort(key=lambda w: w["start"])
     words = _fix_degenerate(words)
 
@@ -303,7 +302,7 @@ def transcribe(p: Project, progress=lambda s: None) -> dict:
     return {"words": len(words)}
 
 
-def _recover(p: Project, words, mlx_whisper) -> list[dict]:
+def _recover(p: Project, words, mlx_whisper, progress=lambda *a: None) -> list[dict]:
     """Voiced stretches with no word on them - usually laughter or a backchannel.
 
     Each candidate is transcribed alone and kept only if it is not one of
@@ -326,10 +325,10 @@ def _recover(p: Project, words, mlx_whisper) -> list[dict]:
     if orphan[-1]:
         ends = np.r_[ends, len(orphan)]
 
+    cand = [(s, e) for s, e in zip(starts, ends) if (e - s) * FRAME >= 0.3]
     got = []
-    for s, e in zip(starts, ends):
-        if (e - s) * FRAME < 0.3:
-            continue
+    for i, (s, e) in enumerate(cand, 1):
+        progress(f"找回被丟掉的笑聲與附和 {i}/{len(cand)}", 0.55 + 0.2 * i / max(len(cand), 1))
         t0, t1 = s * FRAME, e * FRAME
         clip = p.path("_gap.wav")
         run(["ffmpeg", "-y", "-v", "error", "-i", str(p.path("audio.wav")),

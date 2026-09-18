@@ -78,9 +78,19 @@ def diarize(p: Project, progress=lambda s: None) -> dict:
             segs.append((t, t + WIN))
         t += HOP
 
-    progress("分析聲紋")
+    progress("載入聲紋模型", 0.8)
     enc = _encoder()
-    E, C = _embed(enc, x, segs, hop=WIN + 1)     # one window per segment
+    from resemblyzer import preprocess_wav
+    E, C = [], []
+    for i, (a, b) in enumerate(segs, 1):
+        E.append(enc.embed_utterance(
+            preprocess_wav(x[int(a * SR):int(b * SR)], source_sr=SR)))
+        C.append(a + WIN / 2)
+        if i % 40 == 0 or i == len(segs):
+            progress(f"分析聲紋 {i}/{len(segs)}", 0.82 + 0.13 * i / len(segs))
+    E = np.array(E)
+    E /= np.linalg.norm(E, axis=1, keepdims=True)
+    C = np.array(C)
 
     ref = load_voices()
     if names[0] in ref and names[1] in ref:
