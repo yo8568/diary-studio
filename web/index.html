@@ -261,7 +261,8 @@ footer .spacer{flex:1}
 <body>
 
 <header>
-  <div class="mark"><b>DIARY STUDIO</b><span id="srcname">尚未選擇影片</span></div>
+  <div class="mark"><b>DIARY STUDIO</b><span id="build" title="目前執行的版本"></span>
+    <span id="srcname">尚未選擇影片</span></div>
   <div class="spacer"></div>
   <span id="stat" style="font-size:.78rem;color:var(--dim)"></span>
   <button class="ghost" onclick="openPicker()">換影片</button>
@@ -440,13 +441,27 @@ async function open_(id,label,dur){
   PID=id;$('#srcname').textContent=label||id;
   if(dur)DUR=dur;
   try{localStorage.setItem('diary:last',id)}catch(e){}
-  try{await loadTurns();await loadTrack();await loadCues()}
-    catch(e){
-      $('#turns').innerHTML='<p style="padding:1.1rem;color:var(--dim);font-size:.88rem">'+
-        '還沒有逐字稿。按「轉逐字稿」開始，第一次會下載語音模型。</p>';
-      $('#btnApply').disabled=true;$('#btnRender').disabled=true;
-    }
+  let st=null;
+  try{st=await api(`/api/${PID}/state`)}catch(e){}
+  if(st){
+    applyProjectStyle(st.speakers,st.style);
+    if(st.duration)DUR=st.duration;
+  }
+  if(st&&!st.has_transcript){
+    $('#turns').innerHTML='<p style="padding:1.1rem;color:var(--dim);font-size:.88rem">'+
+      '還沒有逐字稿。按「轉逐字稿」開始，第一次會下載語音模型。</p>';
+    $('#btnApply').disabled=true;$('#btnRender').disabled=true;
+    $('#btnTr').classList.add('primary');$('#btnTr').textContent='轉逐字稿';
+  }else{
+    try{await loadTurns();await loadTrack();await loadCues()}catch(e){}
+  }
+  // a brand-new project has no playable copy yet; make one before showing black
+  if(st&&!st.has_video){
+    await api(`/api/${PID}/prepare`,{method:'POST'});
+    watch(()=>{vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`});
+  }else{
     vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`;
+  }
 }
 
 /* ---------------- job ---------------- */
@@ -530,14 +545,23 @@ $('#trackwrap').onclick=e=>{
 };
 
 /* ---------------- turns ---------------- */
-async function loadTurns(){
-  DATA=await api(`/api/${PID}/turns`);
-  STYLE=DATA.style;DUR=DATA.duration||DUR;
-  SPEAKERS=DATA.speakers||DATA.names.map((n,i)=>({name:n,color:i?'#93C572':'#FDEE00'}));
+/* Names, colours and style belong to the project from the moment it exists —
+   they were only being filled in from the transcript, so a fresh project showed
+   blank fields and black swatches. */
+function applyProjectStyle(speakers,style){
+  SPEAKERS=speakers;STYLE=style;
   SPEAKERS.forEach((sp,i)=>{$('#c'+i).value=sp.color;$('#n'+i).value=sp.name});
   $('#cSize').value=STYLE.size;$('#cY').value=STYLE.overlay_y;
   if($('#cGrade').options.length)$('#cGrade').value=STYLE.grade||'none';
-  applyVars();applyGradeCss();renderTurns();
+  applyVars();applyGradeCss();
+}
+
+async function loadTurns(){
+  DATA=await api(`/api/${PID}/turns`);
+  DUR=DATA.duration||DUR;
+  applyProjectStyle(DATA.speakers||DATA.names.map((n,i)=>({name:n,color:'#888'})),
+                    DATA.style);
+  renderTurns();
   $('#btnApply').disabled=false;$('#btnRender').disabled=false;
   // the transcript exists now, so shipping becomes the primary action
   $('#btnTr').classList.remove('primary');$('#btnTr').textContent='重轉逐字稿';
@@ -917,6 +941,7 @@ async function render(){
 const reveal=()=>PID&&fetch(`/api/${PID}/reveal`,{method:'POST'});
 
 (async function boot(){
+  try{const b=await api('/api/build');$('#build').textContent=b.build}catch(e){}
   try{await loadGrades();await loadFonts()}catch(e){}
   const want=new URLSearchParams(location.search).get('p')
     ||(()=>{try{return localStorage.getItem('diary:last')}catch(e){return null}})();

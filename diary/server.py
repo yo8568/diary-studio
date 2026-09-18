@@ -214,7 +214,8 @@ def create(req: NewProject | None = None):
     raw = json.loads((d / "project.json").read_text())
     raw["duration"] = info["duration"] / rate
     (d / "project.json").write_text(json.dumps(raw, ensure_ascii=False, indent=1))
-    return {"id": pid, "duration": info["duration"] / rate, **info}
+    return {"id": pid, "duration": info["duration"] / rate,
+            "has_video": p.fast.exists(), **info}
 
 
 @app.get("/api/settings")
@@ -264,6 +265,33 @@ def put_speakers(pid: str, req: SpeakersIn):
             t["speaker"] = p.names[idx.get(t["speaker"], 0) % len(p.names)]
         path.write_text(json.dumps(d, ensure_ascii=False, indent=1))
     return {"speakers": [{"name": s.name, "color": s.color} for s in p.speakers]}
+
+
+@app.post("/api/{pid}/prepare")
+def prepare_ep(pid: str):
+    """Speed-change and extract audio. Transcription needs this too, but a new
+    project needs the playable copy straight away or the screen is just black."""
+    p = _project(pid)
+
+    def work():
+        from .pipeline import prepare
+        prepare(p, _progress)
+        return {"ready": True}
+
+    _job(work)
+    return {"started": True}
+
+
+@app.get("/api/{pid}/state")
+def state(pid: str):
+    p = _project(pid)
+    return {"has_video": p.fast.exists(),
+            "has_transcript": p.path("transcript.json").exists(),
+            "has_turns": p.path("turns.json").exists(),
+            "has_final": p.final.exists(),
+            "speakers": [{"name": x.name, "color": x.color} for x in p.speakers],
+            "style": asdict(p.style),
+            "duration": json.loads(p.path("project.json").read_text()).get("duration")}
 
 
 @app.post("/api/{pid}/transcribe")
@@ -498,6 +526,33 @@ def reveal(pid: str):
     target = p.final if p.final.exists() else p.dir
     subprocess.run(["open", "-R", str(target)])
     return {"revealed": str(target)}
+
+
+@app.get("/")
+def index():
+    """Always hand over a fresh page.
+
+    WKWebView holds the shell in memory and will re-show it without asking the
+    server, so after editing the code a restart appeared to change nothing.
+    The page is a few KB from localhost; there is nothing to gain by caching it.
+    """
+    f = ROOT / "web" / "index.html"
+    return FileResponse(f, media_type="text/html", headers={
+        "Cache-Control": "no-store, must-revalidate",
+        "Pragma": "no-cache",
+    })
+
+
+@app.get("/api/build")
+def build():
+    """Which build the page is running, so 'did my restart take?' is answerable."""
+    import time
+    f = ROOT / "web" / "index.html"
+    newest = max((x.stat().st_mtime for x in
+                  list((ROOT / "web").glob("*")) + list((ROOT / "diary").glob("*.py"))),
+                 default=f.stat().st_mtime)
+    return {"build": time.strftime("%m-%d %H:%M", time.localtime(newest)),
+            "stamp": int(newest)}
 
 
 app.mount("/", StaticFiles(directory=ROOT / "web", html=True), name="web")
