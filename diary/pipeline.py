@@ -48,34 +48,47 @@ class Style:
     overlay_y: int = 1330          # strip position in the 1920-tall frame
     offset_x: int = 0              # nudges the text inside the full-width strip
     max_chars: int = 11
-    font_index: int = 6            # PingFang TC Medium
+    font_family: str = "PingFang TC"
+    font_file: str = ""            # resolved from the family; blank = look it up
+    font_index: int = 6            # face within a .ttc
     grade: str = "none"            # see GRADES
     lut: str = ""                  # path to a .cube, used when grade == "lut"
 
 
 # Colour grades, applied to the footage *before* the captions go on — grading
 # afterwards would drag the caption colours along with it.
+#
+# Each grade carries a CSS approximation too. The page cannot run an ffmpeg
+# filter, so without one the live preview would keep showing ungraded footage
+# and the choice would be invisible until render. The CSS is close, not exact;
+# "精確定格" is what settles it.
 GRADES: dict[str, dict] = {
-    "none":  {"label": "原始", "filter": ""},
+    "none":  {"label": "原始", "filter": "", "css": ""},
     "warm":  {"label": "暖陽",
               "filter": "eq=contrast=1.06:saturation=1.08,"
-                        "colorbalance=rs=.04:gs=.01:bs=-.04:rm=.03:bm=-.03"},
+                        "colorbalance=rs=.04:gs=.01:bs=-.04:rm=.03:bm=-.03",
+              "css": "contrast(1.06) saturate(1.10) sepia(.10) hue-rotate(-4deg)"},
     "film":  {"label": "底片",
               "filter": "curves=r='0/0.04 0.5/0.52 1/0.98':"
                         "g='0/0.03 0.5/0.5 1/0.97':b='0/0.06 0.5/0.48 1/0.94',"
-                        "eq=saturation=0.92:contrast=1.03"},
+                        "eq=saturation=0.92:contrast=1.03",
+              "css": "contrast(.97) saturate(.92) brightness(1.04) sepia(.08)"},
     "clean": {"label": "清透",
               "filter": "eq=contrast=1.1:saturation=1.05:gamma=1.03,"
-                        "unsharp=5:5:0.5"},
+                        "unsharp=5:5:0.5",
+              "css": "contrast(1.10) saturate(1.05) brightness(1.03)"},
     "cool":  {"label": "冷靜",
               "filter": "eq=contrast=1.05:saturation=0.97,"
-                        "colorbalance=rs=-.04:bs=.05:rm=-.02:bm=.04"},
+                        "colorbalance=rs=-.04:bs=.05:rm=-.02:bm=.04",
+              "css": "contrast(1.05) saturate(.97) hue-rotate(6deg) brightness(1.01)"},
     "soft":  {"label": "柔霧",
               "filter": "curves=all='0/0.07 0.5/0.52 1/0.96',"
-                        "eq=saturation=0.95,gblur=sigma=0.6"},
+                        "eq=saturation=0.95,gblur=sigma=0.6",
+              "css": "contrast(.93) saturate(.95) brightness(1.06) blur(.3px)"},
     "bw":    {"label": "黑白",
-              "filter": "hue=s=0,eq=contrast=1.12:gamma=1.02"},
-    "lut":   {"label": "自訂 LUT", "filter": ""},
+              "filter": "hue=s=0,eq=contrast=1.12:gamma=1.02",
+              "css": "grayscale(1) contrast(1.12) brightness(1.02)"},
+    "lut":   {"label": "自訂 LUT", "filter": "", "css": ""},
 }
 
 

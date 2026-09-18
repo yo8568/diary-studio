@@ -308,7 +308,13 @@ def put_style(pid: str, req: StyleIn):
 @app.get("/api/grades")
 def grades():
     from .pipeline import GRADES
-    return [{"id": k, "label": v["label"]} for k, v in GRADES.items()]
+    return [{"id": k, "label": v["label"], "css": v.get("css", "")}
+            for k, v in GRADES.items()]
+
+
+@app.get("/api/fonts")
+def fonts():
+    return captions.list_fonts()
 
 
 @app.get("/api/{pid}/grade-strip")

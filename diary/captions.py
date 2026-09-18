@@ -16,24 +16,63 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 from .pipeline import Project, Style, run, grade_filter
 
-FONT = ("/System/Library/AssetsV2/com_apple_MobileAsset_Font7/"
-        "3419f2a427639ad8c8e139149a287865a90fa17e.asset/AssetData/PingFang.ttc")
 STRIP_W, STRIP_H, TEXT_Y = 1080, 200, 40
 MAX_DUR, GAP_BREAK, MIN_SHOW = 3.5, 0.45, 0.55
 LATIN = re.compile(r"^[A-Za-z0-9'’\-]+$")
 
 
-def _font(size, index):
-    path = FONT if Path(FONT).exists() else _find_font()
-    return ImageFont.truetype(path, size, index=index)
+def list_fonts() -> list[dict]:
+    """CJK-capable families on this machine, with their faces.
+
+    A .ttc packs many faces in one file, so a face is a (file, index) pair —
+    picking "Medium" is picking an index, not a CSS weight.
+    """
+    out = subprocess.run(
+        ["fc-list", ":lang=zh-tw", "--format",
+         "%{family[0]}\t%{style[0]}\t%{file}\t%{index}\n"],
+        capture_output=True, text=True).stdout
+    fams: dict[str, list[dict]] = {}
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 4:
+            continue
+        fam, style, file, idx = parts
+        if fam.startswith(".") or not fam.strip():
+            continue           # hidden system faces
+        face = {"style": style, "file": file, "index": int(idx or 0)}
+        if face not in fams.setdefault(fam, []):
+            fams[fam].append(face)
+    order = ["Regular", "Medium", "Semibold", "Light", "Thin", "Ultralight",
+             "W3", "W6"]
+    return [{"family": f,
+             "faces": sorted(v, key=lambda x: (order.index(x["style"])
+                                               if x["style"] in order else 99))}
+            for f, v in sorted(fams.items())]
 
 
-def _find_font():
-    out = subprocess.run(["fc-match", "-f", "%{file}", "PingFang TC"],
+_FONT_CACHE: dict = {}
+
+
+def resolve_font(family: str) -> str:
+    """File that holds `family`, via fontconfig rather than a baked-in path."""
+    if family in _FONT_CACHE:
+        return _FONT_CACHE[family]
+    out = subprocess.run(["fc-match", "-f", "%{file}", family],
                          capture_output=True, text=True).stdout.strip()
     if not out:
-        raise RuntimeError("找不到 PingFang TC 字型")
+        raise RuntimeError(f"找不到字型：{family}")
+    _FONT_CACHE[family] = out
     return out
+
+
+def _font(st: Style):
+    path = st.font_file or resolve_font(st.font_family or "PingFang TC")
+    if not Path(path).exists():
+        path = resolve_font(st.font_family or "PingFang TC")
+    try:
+        return ImageFont.truetype(path, st.size, index=st.font_index)
+    except Exception:
+        return ImageFont.truetype(path, st.size, index=0)
 
 
 def _rgba(hex_s, alpha=255):
@@ -196,7 +235,7 @@ def build_cues(p: Project) -> list[dict]:
 
 def draw_cue(cue, lit, st: Style, colors) -> Image.Image:
     """One caption state: `lit` words already spoken, the rest still unlit."""
-    f = _font(st.size, st.font_index)
+    f = _font(st)
     img = Image.new("RGBA", (STRIP_W, STRIP_H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     accent = _rgba(colors[cue["spk"] % len(colors)])

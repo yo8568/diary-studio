@@ -173,6 +173,21 @@ footer{border-top:1px solid var(--line);background:var(--panel);
 .swatch input.who{width:6.2rem;font-size:.82rem;color:var(--fg)}
 footer .spacer{flex:1}
 
+.styleform{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  gap:.5rem .9rem;padding:1rem}
+.styleform label{display:flex;align-items:center;justify-content:space-between;
+  gap:.5rem;font-size:.84rem;color:var(--dim)}
+.styleform input,.styleform select{width:7.4rem}
+.styleform input[type=color]{width:2.4rem;height:1.6rem;padding:0}
+.sheetfoot{display:flex;align-items:center;gap:.7rem;padding:.6rem 1rem;
+  border-top:1px solid var(--line)}
+.sheetfoot .spacer{flex:1}
+#stylesheet{position:fixed;inset:0;background:rgba(13,18,21,.88);z-index:16;
+  display:none;align-items:center;justify-content:center;padding:2rem}
+#stylesheet.on{display:flex}
+#stylesheet .sheet{background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--r);max-width:min(94vw,760px);width:100%}
+
 /* ---------------- grade comparison ---------------- */
 #gradesheet{position:fixed;inset:0;background:rgba(13,18,21,.88);z-index:15;
   display:none;align-items:center;justify-content:center;padding:2rem}
@@ -287,11 +302,35 @@ footer .spacer{flex:1}
   <div class="swatch">高度<input type="number" id="cY" value="1330" min="200" max="1750" step="10"></div>
   <div class="swatch">濾鏡<select id="cGrade"></select>
     <button class="ghost" id="btnGrades" title="用目前畫面比較所有濾鏡">比較</button></div>
+  <button class="ghost" id="btnStyle">字型樣式</button>
   <div class="spacer"></div>
   <button class="ghost" id="btnDefault" title="把目前的名字、顏色與樣式存成新專案的預設">存為預設</button>
   <button id="btnRender" class="primary" onclick="render()" disabled>出片</button>
   <button class="ghost" onclick="reveal()">在 Finder 顯示</button>
 </footer>
+
+<div id="stylesheet"><div class="sheet">
+  <div class="sheethead"><b>字型與樣式</b><span class="spacer"></span>
+    <button class="ghost" onclick="$('#stylesheet').classList.remove('on')">關閉</button></div>
+  <div class="styleform">
+    <label>字型<select id="sFamily"></select></label>
+    <label>字重<select id="sFace"></select></label>
+    <label>字級<input type="number" id="sSize" min="30" max="120"></label>
+    <label>字距<input type="number" id="sTrack" min="-4" max="30"></label>
+    <label>描邊粗細<input type="number" id="sStroke" min="0" max="20"></label>
+    <label>每行字數<input type="number" id="sChars" min="6" max="20"></label>
+    <label>底字色<input type="color" id="sBase"></label>
+    <label>描邊色<input type="color" id="sInk"></label>
+    <label>陰影模糊<input type="number" id="sBlur" min="0" max="40"></label>
+    <label>陰影下移<input type="number" id="sDy" min="-20" max="40"></label>
+    <label>陰影濃度<input type="number" id="sAlpha" min="0" max="255"></label>
+  </div>
+  <div class="sheetfoot">
+    <button class="ghost" id="btnStyleReset">回到預設</button>
+    <span class="spacer"></span>
+    <span class="hint" id="styleNote">改動即時反映在預覽上</span>
+  </div>
+</div></div>
 
 <div id="gradesheet"><div class="sheet">
   <div class="sheethead"><b>選一個濾鏡</b>
@@ -468,7 +507,7 @@ async function loadTurns(){
   SPEAKERS.forEach((sp,i)=>{$('#c'+i).value=sp.color;$('#n'+i).value=sp.name});
   $('#cSize').value=STYLE.size;$('#cY').value=STYLE.overlay_y;
   if($('#cGrade').options.length)$('#cGrade').value=STYLE.grade||'none';
-  applyVars();renderTurns();
+  applyVars();applyGradeCss();renderTurns();
   $('#btnApply').disabled=false;$('#btnRender').disabled=false;
   // the transcript exists now, so shipping becomes the primary action
   $('#btnTr').classList.remove('primary');$('#btnTr').textContent='重轉逐字稿';
@@ -564,7 +603,7 @@ async function pushStyle(){
     DATA.turns.forEach(t=>{const k=before.indexOf(t.speaker);
       if(k>=0)t.speaker=DATA.names[k]});
   }
-  applyVars();renderTurns();drawTrack();
+  applyVars();applyGradeCss();renderTurns();drawTrack();
   const keep=CUES?{overlay_y:CUES.style.overlay_y,offset_x:CUES.style.offset_x}:null;
   await loadCues();
   if(keep&&CUES)Object.assign(CUES.style,keep);
@@ -619,8 +658,67 @@ async function openGrades(){
 }
 $('#btnGrades').onclick=openGrades;
 
+/* ---------------- font + style panel ---------------- */
+const SFIELDS={sSize:'size',sTrack:'track',sStroke:'stroke',sChars:'max_chars',
+  sBase:'base',sInk:'ink',sBlur:'shadow_blur',sDy:'shadow_dy',sAlpha:'shadow_alpha'};
+let FONTS=[];
+
+async function loadFonts(){
+  try{FONTS=await api('/api/fonts')}catch(e){FONTS=[]}
+  $('#sFamily').innerHTML=FONTS.map(f=>
+    `<option value="${f.family}">${f.family}</option>`).join('');
+}
+function fillFaces(){
+  const f=FONTS.find(x=>x.family===$('#sFamily').value);
+  $('#sFace').innerHTML=(f?f.faces:[]).map((x,i)=>
+    `<option value="${x.index}" data-file="${x.file}">${x.style}</option>`).join('');
+}
+function openStyle(){
+  if(!STYLE)return;
+  $('#sFamily').value=STYLE.font_family||'PingFang TC';
+  fillFaces();
+  $('#sFace').value=String(STYLE.font_index);
+  for(const [id,k] of Object.entries(SFIELDS))$('#'+id).value=STYLE[k];
+  $('#stylesheet').classList.add('on');
+}
+$('#btnStyle').onclick=openStyle;
+$('#sFamily').onchange=()=>{fillFaces();pushPanel()};
+
+async function pushPanel(){
+  const face=$('#sFace').selectedOptions[0];
+  const patch={font_family:$('#sFamily').value,
+               font_index:+($('#sFace').value||0),
+               font_file:face?face.dataset.file:''};
+  for(const [id,k] of Object.entries(SFIELDS)){
+    const v=$('#'+id).value;
+    patch[k]=$('#'+id).type==='color'?v:+v;
+  }
+  STYLE=await api(`/api/${PID}/style`,{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({style:patch})});
+  const keep=CUES?{overlay_y:CUES.style.overlay_y,offset_x:CUES.style.offset_x}:null;
+  await loadCues();
+  if(keep&&CUES)Object.assign(CUES.style,keep);
+  layoutCap();
+  $('#cSize').value=STYLE.size;
+}
+Object.keys(SFIELDS).concat(['sFace']).forEach(id=>$('#'+id).onchange=pushPanel);
+
+$('#btnStyleReset').onclick=async()=>{
+  const d=await api('/api/settings');
+  STYLE=await api(`/api/${PID}/style`,{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({style:d.style})});
+  openStyle();await loadCues();layoutCap();
+};
+
+function applyGradeCss(){
+  const g=GRADECSS[(STYLE&&STYLE.grade)||'none']||'';
+  vid.style.filter=g;
+  img.style.filter='';          // the server render already has it baked in
+}
+let GRADECSS={};
 async function loadGrades(){
   const gs=await api('/api/grades');
+  GRADECSS=Object.fromEntries(gs.map(g=>[g.id,g.css||'']));
   $('#cGrade').innerHTML=gs.filter(g=>g.id!=='lut')
     .map(g=>`<option value="${g.id}">${g.label}</option>`).join('');
 }
@@ -656,7 +754,8 @@ function layoutCap(){
   cap.style.webkitTextStrokeColor=st.ink;
   cap.style.setProperty('--capbase',st.base);
   cap.style.textShadow=`0 ${Math.round(sw*0.8)}px ${Math.round(sw*1.6)}px ${st.ink}`;
-  cap.style.fontFamily='"PingFang TC","Hiragino Sans",sans-serif';
+  cap.style.fontFamily=`"${st.font_family||'PingFang TC'}","Hiragino Sans",sans-serif`;
+  cap.style.fontWeight=({0:400,2:400,6:500,10:600,14:300,18:200,22:100})[st.font_index]??500;
   drawCap(true);
 }
 function drawCap(force){
@@ -770,7 +869,7 @@ async function render(){
 const reveal=()=>PID&&fetch(`/api/${PID}/reveal`,{method:'POST'});
 
 (async function boot(){
-  try{await loadGrades()}catch(e){}
+  try{await loadGrades();await loadFonts()}catch(e){}
   const want=new URLSearchParams(location.search).get('p')
     ||(()=>{try{return localStorage.getItem('diary:last')}catch(e){return null}})();
   if(want){
