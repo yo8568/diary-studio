@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+build/
+dist/
+*.egg-info/
+
+# projects, media and learned voices live outside the repo, in ~/.diary-studio
+*.mp4
+*.mov
+*.MOV
+*.wav
+*.png
+!assets/*.png

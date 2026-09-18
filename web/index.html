@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diary Studio</title>
+<style>
+:root{
+  --paper:#F2EDE4;        /* 生成り - the same base the captions use */
+  --paper-2:#E8E1D4;
+  --sumi:#241F1B;         /* 墨 */
+  --sumi-soft:#5A524A;
+  --spk0:#FDEE00;
+  --spk1:#93C572;
+  --rule:#D5CCBC;
+  --warn:#C0562F;
+  font-size:15px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--paper); color:var(--sumi);
+  font-family:"PingFang TC","Hiragino Sans",-apple-system,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  display:flex; flex-direction:column;
+}
+button{font:inherit;color:inherit;cursor:pointer;border:1px solid var(--sumi);
+  background:transparent;border-radius:2px;padding:.4em .9em;transition:background .12s}
+button:hover:not(:disabled){background:var(--sumi);color:var(--paper)}
+button:disabled{opacity:.35;cursor:default}
+button.primary{background:var(--sumi);color:var(--paper)}
+button.primary:hover:not(:disabled){background:#000}
+button.ghost{border-color:transparent;padding:.2em .5em;color:var(--sumi-soft)}
+button.ghost:hover{background:var(--paper-2);color:var(--sumi)}
+input,select{font:inherit;color:inherit;background:transparent;
+  border:1px solid var(--rule);border-radius:2px;padding:.35em .5em}
+
+/* ---------- chrome ---------- */
+header{display:flex;align-items:baseline;gap:1.2rem;padding:.9rem 1.4rem;
+  border-bottom:1px solid var(--rule);flex-wrap:wrap}
+h1{font-size:1.05rem;font-weight:600;margin:0;letter-spacing:.06em}
+h1 em{font-style:normal;color:var(--sumi-soft);font-weight:400}
+header .spacer{flex:1}
+#jobbar{padding:.5rem 1.4rem;border-bottom:1px solid var(--rule);
+  background:var(--paper-2);display:none;align-items:center;gap:.8rem}
+#jobbar.on{display:flex}
+#jobtrack{flex:1;height:2px;background:var(--rule);position:relative;overflow:hidden}
+#jobfill{position:absolute;inset:0 100% 0 0;background:var(--sumi);transition:right .3s}
+
+main{flex:1;display:grid;grid-template-columns:minmax(300px,38%) 1fr;min-height:0}
+@media (max-width:900px){main{grid-template-columns:1fr;overflow:auto}}
+
+/* ---------- left: video ---------- */
+#stage{padding:1.2rem;border-right:1px solid var(--rule);display:flex;
+  flex-direction:column;gap:.8rem;min-height:0}
+#vidwrap{position:relative;background:#111;border-radius:3px;overflow:hidden;
+  aspect-ratio:9/16;max-height:52vh;margin:0 auto;width:100%}
+#vidwrap video,#vidwrap img{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:contain;display:block}
+#previewimg{display:none}
+#stage .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+#tc{font-variant-numeric:tabular-nums;color:var(--sumi-soft);font-size:.85rem}
+
+/* ---------- right: turns ---------- */
+#editor{display:flex;flex-direction:column;min-height:0}
+#editorhead{padding:.8rem 1.2rem;border-bottom:1px solid var(--rule);
+  display:flex;gap:.7rem;align-items:center;flex-wrap:wrap}
+#turns{overflow:auto;padding:.4rem 0 3rem;flex:1}
+.turn{display:grid;grid-template-columns:5.6rem 1fr auto;gap:.7rem;
+  padding:.55rem 1.2rem;border-bottom:1px solid var(--rule);align-items:start}
+.turn.active{background:var(--paper-2)}
+.turn .meta{display:flex;flex-direction:column;gap:.25rem}
+.spk{border:none;border-radius:2px;padding:.2em .55em;font-size:.82rem;
+  font-weight:600;text-align:center;color:var(--sumi)}
+.spk.s0{background:var(--spk0)}
+.spk.s1{background:var(--spk1)}
+.tm{font-size:.72rem;color:var(--sumi-soft);font-variant-numeric:tabular-nums;
+  background:none;border:none;text-align:left;padding:0}
+.tm:hover{text-decoration:underline}
+.txt{border:none;outline:none;line-height:1.75;padding:.1rem 0;white-space:pre-wrap;
+  word-break:break-word}
+.txt:focus{background:#fff;box-shadow:0 0 0 1px var(--rule)}
+.turn .tools{display:flex;gap:.15rem;opacity:0;transition:opacity .12s}
+.turn:hover .tools,.turn:focus-within .tools{opacity:1}
+.turn.low .tm::after{content:" ⚠";color:var(--warn)}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--rule);padding:.8rem 1.4rem;display:flex;
+  gap:1.2rem;align-items:center;flex-wrap:wrap}
+.swatch{display:flex;align-items:center;gap:.45rem;font-size:.88rem}
+.swatch input[type=color]{width:2rem;height:1.6rem;padding:0;border:1px solid var(--rule)}
+footer .spacer{flex:1}
+
+/* ---------- picker ---------- */
+#picker{position:fixed;inset:0;background:rgba(242,237,228,.97);z-index:10;
+  display:flex;flex-direction:column;padding:2.5rem 2rem;gap:1rem;overflow:auto}
+#picker h2{margin:0;font-size:1.3rem;font-weight:600}
+#picker p{margin:0;color:var(--sumi-soft);max-width:46ch;line-height:1.7}
+.filelist{display:flex;flex-direction:column;gap:.1rem;margin-top:.6rem}
+.filerow{display:grid;grid-template-columns:1fr auto auto;gap:1rem;padding:.55rem .7rem;
+  border:1px solid transparent;border-bottom-color:var(--rule);text-align:left;
+  background:none;border-radius:0}
+.filerow:hover{background:var(--paper-2);color:inherit}
+.filerow .sub{color:var(--sumi-soft);font-size:.82rem;font-variant-numeric:tabular-nums}
+.hint{font-size:.82rem;color:var(--sumi-soft)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Diary Studio <em id="projname"></em></h1>
+  <div class="spacer"></div>
+  <span class="hint" id="stat"></span>
+  <button class="ghost" onclick="openPicker()">換影片</button>
+</header>
+
+<div id="jobbar">
+  <span id="jobstep">處理中</span>
+  <div id="jobtrack"><div id="jobfill"></div></div>
+</div>
+
+<main>
+  <section id="stage">
+    <div id="vidwrap">
+      <video id="vid" controls preload="metadata"></video>
+      <img id="previewimg" alt="字幕預覽">
+    </div>
+    <div class="row">
+      <button class="ghost" onclick="seekBy(-5)">−5s</button>
+      <button class="ghost" onclick="seekBy(5)">+5s</button>
+      <span id="tc">00:00</span>
+      <span class="spacer" style="flex:1"></span>
+      <label class="hint"><input type="checkbox" id="showcap"> 看字幕預覽</label>
+    </div>
+    <p class="hint" id="tip">點左邊時間碼可以跳到那一句。改完按「套用」。</p>
+  </section>
+
+  <section id="editor">
+    <div id="editorhead">
+      <button id="btnTranscribe" class="primary" onclick="transcribe()">轉逐字稿</button>
+      <button id="btnApply" onclick="apply()" disabled>套用修改</button>
+      <span class="spacer" style="flex:1"></span>
+      <span class="hint" id="turnstat"></span>
+    </div>
+    <div id="turns"></div>
+  </section>
+</main>
+
+<footer>
+  <div class="swatch"><input type="color" id="cA" value="#FDEE00"> A</div>
+  <div class="swatch"><input type="color" id="cB" value="#93C572"> B</div>
+  <div class="swatch">字級 <input type="number" id="cSize" value="68" min="40" max="110" style="width:4.2rem"></div>
+  <div class="swatch">高度 <input type="number" id="cY" value="1330" min="200" max="1750" step="10" style="width:5.2rem"></div>
+  <div class="spacer"></div>
+  <button id="btnRender" class="primary" onclick="render()" disabled>出片</button>
+  <button class="ghost" onclick="reveal()">在 Finder 顯示</button>
+</footer>
+
+<div id="picker">
+  <h2>選一支影片</h2>
+  <p>從 Downloads、Movies、Desktop 找到的影片。選好之後會先做 5% 加速，再轉逐字稿。</p>
+  <div class="filelist" id="filelist"></div>
+  <div class="row" style="margin-top:1rem;display:flex;gap:.5rem;align-items:center">
+    <input id="manualpath" placeholder="或直接貼上完整路徑" style="flex:1;min-width:16rem">
+    <button onclick="pick(document.getElementById('manualpath').value)">開啟</button>
+  </div>
+</div>
+
+<script>
+let PID=null, DATA=null, STYLE=null, POLL=null;
+const $=s=>document.querySelector(s);
+const vid=$('#vid'), img=$('#previewimg');
+
+const tc=s=>{const m=Math.floor(s/60),x=(s%60);return `${String(m).padStart(2,'0')}:${x.toFixed(2).padStart(5,'0')}`};
+const api=async(u,o)=>{const r=await fetch(u,o);if(!r.ok)throw new Error((await r.json().catch(()=>({detail:r.statusText}))).detail);return r.json()};
+
+/* ---------- picker ---------- */
+function openPicker(){$('#picker').style.display='flex';loadFiles()}
+async function loadFiles(){
+  const fs=await api('/api/browse');
+  $('#filelist').innerHTML='';
+  for(const f of fs){
+    const b=document.createElement('button');
+    b.className='filerow';
+    b.innerHTML=`<span>${f.name}</span><span class="sub">${f.folder}</span><span class="sub">${f.size_mb} MB</span>`;
+    b.onclick=()=>pick(f.path);
+    $('#filelist').appendChild(b);
+  }
+  if(!fs.length)$('#filelist').innerHTML='<p class="hint">找不到影片，請用下面的欄位貼路徑。</p>';
+}
+async function pick(path){
+  if(!path)return;
+  const r=await api('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({path,rate:1.05})});
+  PID=r.id; $('#projname').textContent=path.split('/').pop();
+  $('#picker').style.display='none';
+  try{ await loadTurns(); }catch(e){ $('#turns').innerHTML=
+    '<p class="hint" style="padding:1.2rem">還沒有逐字稿，按「轉逐字稿」開始。第一次會下載模型。</p>'; }
+  vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`;
+}
+
+/* ---------- job polling ---------- */
+function watch(after){
+  $('#jobbar').classList.add('on');
+  clearInterval(POLL);
+  POLL=setInterval(async()=>{
+    const j=await api('/api/job');
+    $('#jobstep').textContent=j.step||'處理中';
+    $('#jobfill').style.right=`${100-Math.round((j.fraction||0)*100)}%`;
+    if(!j.running){
+      clearInterval(POLL);
+      $('#jobbar').classList.remove('on');
+      if(j.error){alert('失敗：'+j.error);return}
+      after&&after(j.done);
+    }
+  },700);
+}
+
+async function transcribe(){
+  if(!PID)return openPicker();
+  await api(`/api/${PID}/transcribe`,{method:'POST'});
+  watch(async()=>{ await loadTurns(); vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`; });
+}
+
+/* ---------- turns ---------- */
+async function loadTurns(){
+  DATA=await api(`/api/${PID}/turns`);
+  STYLE=DATA.style;
+  $('#cA').value=STYLE.spk0; $('#cB').value=STYLE.spk1;
+  $('#cSize').value=STYLE.size; $('#cY').value=STYLE.overlay_y;
+  document.documentElement.style.setProperty('--spk0',STYLE.spk0);
+  document.documentElement.style.setProperty('--spk1',STYLE.spk1);
+  renderTurns();
+  $('#btnApply').disabled=false; $('#btnRender').disabled=false;
+}
+
+function renderTurns(){
+  const box=$('#turns'); box.innerHTML='';
+  const low=DATA.turns.filter(t=>t.confidence!==undefined&&t.confidence<0.05).length;
+  $('#turnstat').textContent=`${DATA.turns.length} 個輪次`+(low?` · ${low} 個待確認`:'');
+  DATA.turns.forEach((t,i)=>{
+    const el=document.createElement('div');
+    el.className='turn'+(t.confidence<0.05?' low':'');
+    el.dataset.i=i;
+    const si=DATA.names.indexOf(t.speaker);
+    el.innerHTML=`
+      <div class="meta">
+        <button class="spk s${si}" title="點一下換人">${t.speaker}</button>
+        <button class="tm">${tc(t.start)}</button>
+      </div>
+      <div class="txt" contenteditable="plaintext-only" spellcheck="false">${escapeHtml(t.text)}</div>
+      <div class="tools">
+        <button class="ghost" title="在游標處切成兩段">切</button>
+        <button class="ghost" title="與上一段合併">併</button>
+      </div>`;
+    const [spk,tm]=el.querySelectorAll('.meta button');
+    spk.onclick=()=>{t.speaker=DATA.names[(DATA.names.indexOf(t.speaker)+1)%2];renderTurns()};
+    tm.onclick=()=>{vid.currentTime=t.start;vid.play()};
+    const txt=el.querySelector('.txt');
+    txt.oninput=()=>{t.text=txt.textContent};
+    const [cut,merge]=el.querySelectorAll('.tools button');
+    cut.onclick=()=>splitAt(i,txt);
+    merge.onclick=()=>mergeUp(i);
+    box.appendChild(el);
+  });
+}
+const escapeHtml=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+function splitAt(i,txt){
+  const sel=window.getSelection();
+  let at=txt.textContent.length;
+  if(sel.rangeCount&&txt.contains(sel.anchorNode)){
+    const r=sel.getRangeAt(0).cloneRange();
+    r.selectNodeContents(txt); r.setEnd(sel.anchorNode,sel.anchorOffset);
+    at=r.toString().length;
+  }
+  const t=DATA.turns[i], head=t.text.slice(0,at), tail=t.text.slice(at);
+  if(!head||!tail)return;
+  const span=t.end-t.start, mid=t.start+span*(at/Math.max(t.text.length,1));
+  DATA.turns.splice(i,1,
+    {...t,text:head,end:mid},
+    {...t,text:tail,start:mid,speaker:DATA.names[(DATA.names.indexOf(t.speaker)+1)%2]});
+  renderTurns();
+}
+function mergeUp(i){
+  if(i===0)return;
+  const a=DATA.turns[i-1],b=DATA.turns[i];
+  a.text+=b.text; a.end=b.end;
+  DATA.turns.splice(i,1); renderTurns();
+}
+
+async function apply(){
+  $('#btnApply').disabled=true;
+  try{
+    const r=await api(`/api/${PID}/turns`,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({turns:DATA.turns,names:DATA.names})});
+    $('#stat').textContent=`已套用 · ${r.tokens} 詞`+(r.dropped_words?` · 刪掉 ${r.dropped_words} 詞不顯示`:'');
+    if($('#showcap').checked)refreshPreview();
+  }catch(e){alert('套用失敗：'+e.message)}
+  $('#btnApply').disabled=false;
+}
+
+/* ---------- style + preview ---------- */
+async function pushStyle(){
+  if(!PID)return;
+  const s={spk0:$('#cA').value,spk1:$('#cB').value,
+    size:+$('#cSize').value,overlay_y:+$('#cY').value};
+  STYLE=await api(`/api/${PID}/style`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({style:s})});
+  document.documentElement.style.setProperty('--spk0',STYLE.spk0);
+  document.documentElement.style.setProperty('--spk1',STYLE.spk1);
+  renderTurns();
+  if($('#showcap').checked)refreshPreview();
+}
+['cA','cB','cSize','cY'].forEach(id=>$('#'+id).onchange=pushStyle);
+
+let previewTimer=null;
+function refreshPreview(){
+  clearTimeout(previewTimer);
+  previewTimer=setTimeout(()=>{
+    img.src=`/api/${PID}/preview?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
+  },180);
+}
+$('#showcap').onchange=e=>{
+  img.style.display=e.target.checked?'block':'none';
+  vid.style.visibility=e.target.checked?'hidden':'visible';
+  if(e.target.checked)refreshPreview();
+};
+
+vid.addEventListener('timeupdate',()=>{
+  $('#tc').textContent=tc(vid.currentTime);
+  if($('#showcap').checked&&vid.paused)refreshPreview();
+  if(!DATA)return;
+  const i=DATA.turns.findIndex(t=>vid.currentTime>=t.start&&vid.currentTime<=t.end);
+  document.querySelectorAll('.turn').forEach(el=>el.classList.toggle('active',+el.dataset.i===i));
+});
+vid.addEventListener('pause',()=>{if($('#showcap').checked)refreshPreview()});
+function seekBy(d){vid.currentTime=Math.max(0,vid.currentTime+d)}
+
+/* ---------- render ---------- */
+async function render(){
+  await apply();
+  await api(`/api/${PID}/render`,{method:'POST'});
+  watch(()=>{
+    vid.src=`/api/${PID}/video?which=final&t=${Date.now()}`;
+    $('#showcap').checked=false; img.style.display='none'; vid.style.visibility='visible';
+    $('#stat').textContent='出片完成';
+  });
+}
+const reveal=()=>PID&&fetch(`/api/${PID}/reveal`,{method:'POST'});
+
+openPicker();
+</script>
+</body>
+</html>
