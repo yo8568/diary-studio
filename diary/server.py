@@ -361,6 +361,58 @@ def grade_strip(pid: str, t: float):
                         headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/{pid}/style-sample")
+def style_sample(pid: str, t: float = 0.0):
+    """A caption strip drawn by the real renderer, over real footage.
+
+    The style panel is for judging typography, so a CSS approximation would be
+    the wrong thing to look at — this is the same draw_cue that writes the file,
+    on the same background the captions will actually sit on.
+    """
+    from PIL import Image
+    from .pipeline import grade_filter, run as _run
+
+    p = _project(pid)
+    if not p.fast.exists():
+        raise HTTPException(409, "尚未產生影片")
+
+    # a real line from this project reads truer than lorem ipsum
+    words, spk = None, 0
+    cf = p.path("cues.json")
+    if cf.exists():
+        cues = json.loads(cf.read_text())["cues"]
+        pick = next((c for c in cues if c["start"] <= t <= c["end"]), None) \
+            or max(cues, key=lambda c: len(c["words"]), default=None)
+        if pick:
+            words, spk = pick["words"], pick["spk"]
+            t = pick["start"] + (pick["end"] - pick["start"]) * 0.55
+    if not words:
+        words = [{"text": ch, "start": 0, "end": 1}
+                 for ch in "今天的天氣很好"]
+
+    bg_path = p.path("_sample_bg.png")
+    cmd = ["ffmpeg", "-y", "-v", "error", "-ss", str(max(t, 0)), "-i", str(p.fast)]
+    g = grade_filter(p.style)
+    if g:
+        cmd += ["-vf", g]
+    _run(cmd + ["-vframes", "1", str(bg_path)])
+
+    bg = Image.open(bg_path).convert("RGBA")
+    lit = max(1, round(len(words) * 0.55))
+    strip = captions.draw_cue({"spk": spk, "words": words}, lit, p.style, p.colors)
+    y = p.style.overlay_y
+    bg.alpha_composite(strip, (0, y))   # draw_cue already applied offset_x
+
+    pad = 40
+    top = max(0, y - pad)
+    crop = bg.crop((0, top, bg.width, min(bg.height, y + captions.STRIP_H + pad)))
+    crop = crop.resize((760, round(crop.height * 760 / crop.width)))
+    out = p.path("style-sample.png")
+    crop.convert("RGB").save(out)
+    return FileResponse(out, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/{pid}/cues")
 def cues(pid: str):
     """Caption blocks for the live overlay. Drawing them in the page means the

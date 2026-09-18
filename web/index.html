@@ -173,6 +173,12 @@ footer{border-top:1px solid var(--line);background:var(--panel);
 .swatch input.who{width:6.2rem;font-size:.82rem;color:var(--fg)}
 footer .spacer{flex:1}
 
+.samplewrap{position:relative;background:#000;border-bottom:1px solid var(--line);
+  min-height:90px;display:grid;place-items:center}
+.samplewrap img{display:block;width:100%;height:auto}
+.samplewrap .samplebusy{position:absolute;inset:auto 0 0 0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--spk1),transparent);opacity:0}
+.samplewrap.busy .samplebusy{opacity:1;animation:scan 1.1s linear infinite}
 .styleform{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
   gap:.5rem .9rem;padding:1rem}
 .styleform label{display:flex;align-items:center;justify-content:space-between;
@@ -312,6 +318,7 @@ footer .spacer{flex:1}
 <div id="stylesheet"><div class="sheet">
   <div class="sheethead"><b>字型與樣式</b><span class="spacer"></span>
     <button class="ghost" onclick="$('#stylesheet').classList.remove('on')">關閉</button></div>
+  <div class="samplewrap"><img id="sampleimg" alt="樣式預覽"><div class="samplebusy"></div></div>
   <div class="styleform">
     <label>字型<select id="sFamily"></select></label>
     <label>字重<select id="sFace"></select></label>
@@ -589,7 +596,6 @@ async function pushStyle(){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({style:{
       size:+$('#cSize').value,overlay_y:+$('#cY').value,
-      offset_x:CUES?(CUES.style.offset_x||0):0,
       // an unpopulated select must never silently overwrite the saved grade
       ...($('#cGrade').value?{grade:$('#cGrade').value}:{})}})});
   const next=[0,1].map(i=>({name:$('#n'+i).value.trim()||`說話者 ${i+1}`,
@@ -604,6 +610,7 @@ async function pushStyle(){
       if(k>=0)t.speaker=DATA.names[k]});
   }
   applyVars();applyGradeCss();renderTurns();drawTrack();
+  if($('#stylesheet').classList.contains('on'))refreshSample();
   const keep=CUES?{overlay_y:CUES.style.overlay_y,offset_x:CUES.style.offset_x}:null;
   await loadCues();
   if(keep&&CUES)Object.assign(CUES.style,keep);
@@ -673,6 +680,18 @@ function fillFaces(){
   $('#sFace').innerHTML=(f?f.faces:[]).map((x,i)=>
     `<option value="${x.index}" data-file="${x.file}">${x.style}</option>`).join('');
 }
+let sampleTimer=null;
+function refreshSample(){
+  if(!PID)return;
+  clearTimeout(sampleTimer);
+  sampleTimer=setTimeout(()=>{
+    const w=$('.samplewrap');w.classList.add('busy');
+    const im=$('#sampleimg');
+    im.onload=im.onerror=()=>w.classList.remove('busy');
+    im.src=`/api/${PID}/style-sample?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
+  },220);
+}
+
 function openStyle(){
   if(!STYLE)return;
   $('#sFamily').value=STYLE.font_family||'PingFang TC';
@@ -680,6 +699,7 @@ function openStyle(){
   $('#sFace').value=String(STYLE.font_index);
   for(const [id,k] of Object.entries(SFIELDS))$('#'+id).value=STYLE[k];
   $('#stylesheet').classList.add('on');
+  refreshSample();
 }
 $('#btnStyle').onclick=openStyle;
 $('#sFamily').onchange=()=>{fillFaces();pushPanel()};
@@ -700,6 +720,7 @@ async function pushPanel(){
   if(keep&&CUES)Object.assign(CUES.style,keep);
   layoutCap();
   $('#cSize').value=STYLE.size;
+  refreshSample();
 }
 Object.keys(SFIELDS).concat(['sFace']).forEach(id=>$('#'+id).onchange=pushPanel);
 
@@ -818,7 +839,11 @@ function endDrag(){
   cap.classList.remove('dragging');
   rule.classList.remove('on');badge.classList.remove('on');
   $('#cY').value=CUES.style.overlay_y;
-  pushStyle();
+  // position is saved by the drag itself, nowhere else
+  api(`/api/${PID}/style`,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({style:{overlay_y:CUES.style.overlay_y,
+                                offset_x:CUES.style.offset_x}})})
+    .then(st=>{STYLE=st;if($('#stylesheet').classList.contains('on'))refreshSample()});
 }
 cap.addEventListener('pointerup',endDrag);
 cap.addEventListener('pointercancel',endDrag);
