@@ -67,6 +67,17 @@ THUMBS = Path.home() / ".diary-studio" / "thumbs"
 PROBE_CACHE = Path.home() / ".diary-studio" / "probe-cache.json"
 
 
+def _slug(name: str) -> str:
+    """A project id that is safe in a URL path and on disk.
+
+    Ids go straight into request paths, and filenames like "成片 (5)" carry
+    spaces and parentheses. CJK is kept — it encodes fine and stays readable.
+    """
+    import re
+    out = re.sub(r"[^\w\u4e00-\u9fff-]+", "-", name, flags=re.UNICODE)
+    return re.sub(r"-{2,}", "-", out).strip("-") or "project"
+
+
 def _probe_cached(f: Path) -> dict:
     """ffprobe keyed on (path, mtime, size).
 
@@ -205,7 +216,7 @@ def create(req: NewProject | None = None):
     if not src.exists():
         raise HTTPException(400, f"找不到檔案：{src}")
     info = probe(src)
-    pid = f"{src.stem}-{int(info['duration'])}s"
+    pid = f"{_slug(src.stem)}-{int(info['duration'])}s"
     d = WORK / pid
     d.mkdir(parents=True, exist_ok=True)
     p = Project(dir=d, source=src, rate=rate, style=Style(**s["style"]),

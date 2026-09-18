@@ -11,11 +11,13 @@ import sys
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from playwright.sync_api import sync_playwright
 
 BASE = "http://127.0.0.1:8756"
 WORK = Path.home() / ".diary-studio" / "projects"
-SRC = Path("/tmp/diary-fresh-test.mp4")
+SRC = Path("/tmp/diary fresh (test).mp4")
 
 
 def make_clip():
@@ -30,7 +32,8 @@ def make_clip():
 
 def main():
     make_clip()
-    pid = f"{SRC.stem}-8s"
+    from diary.server import _slug
+    pid = f"{_slug(SRC.stem)}-8s"
     shutil.rmtree(WORK / pid, ignore_errors=True)      # never seen before
 
     errs = []

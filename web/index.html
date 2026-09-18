@@ -372,7 +372,7 @@ footer .spacer{flex:1}
 
 <script>
 const STRIP_H=200;
-let PID=null,DATA=null,STYLE=null,SPEAKERS=[],POLL=null,TRACK=null,DUR=0,T0=0;
+let PID=null,PIDE='',DATA=null,STYLE=null,SPEAKERS=[],POLL=null,TRACK=null,DUR=0,T0=0;
 const $=s=>document.querySelector(s);
 const vid=$('#vid'),img=$('#previewimg'),screenEl=$('#screen');
 
@@ -438,11 +438,11 @@ async function pick(path){
 /* Reopening where you left off matters here: a project is corrected over
    several sittings, not finished in one. */
 async function open_(id,label,dur){
-  PID=id;$('#srcname').textContent=label||id;
+  PID=id;PIDE=encodeURIComponent(id);$('#srcname').textContent=label||id;
   if(dur)DUR=dur;
   try{localStorage.setItem('diary:last',id)}catch(e){}
   let st=null;
-  try{st=await api(`/api/${PID}/state`)}catch(e){}
+  try{st=await api(`/api/${PIDE}/state`)}catch(e){}
   if(st){
     applyProjectStyle(st.speakers,st.style);
     if(st.duration)DUR=st.duration;
@@ -457,10 +457,10 @@ async function open_(id,label,dur){
   }
   // a brand-new project has no playable copy yet; make one before showing black
   if(st&&!st.has_video){
-    await api(`/api/${PID}/prepare`,{method:'POST'});
-    watch(()=>{vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`});
+    await api(`/api/${PIDE}/prepare`,{method:'POST'});
+    watch(()=>{vid.src=`/api/${PIDE}/video?which=fast&t=${Date.now()}`});
   }else{
-    vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`;
+    vid.src=`/api/${PIDE}/video?which=fast&t=${Date.now()}`;
   }
 }
 
@@ -503,16 +503,16 @@ async function transcribe(){
   if(!PID)return openPicker();
   $('#turns').innerHTML=Array.from({length:7},()=>
     '<div class="skel"><div></div><div></div></div>').join('');
-  await api(`/api/${PID}/transcribe`,{method:'POST'});
+  await api(`/api/${PIDE}/transcribe`,{method:'POST'});
   watch(async()=>{
     await loadTurns();await loadTrack();await loadCues();
-    vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`;
+    vid.src=`/api/${PIDE}/video?which=fast&t=${Date.now()}`;
   });
 }
 
 /* ---------------- track ---------------- */
 async function loadTrack(){
-  try{TRACK=await api(`/api/${PID}/track`)}catch(e){return}
+  try{TRACK=await api(`/api/${PIDE}/track`)}catch(e){return}
   DUR=TRACK.duration||DUR;
   $('#trackempty').style.display='none';
   drawTrack();
@@ -557,7 +557,7 @@ function applyProjectStyle(speakers,style){
 }
 
 async function loadTurns(){
-  DATA=await api(`/api/${PID}/turns`);
+  DATA=await api(`/api/${PIDE}/turns`);
   DUR=DATA.duration||DUR;
   applyProjectStyle(DATA.speakers||DATA.names.map((n,i)=>({name:n,color:'#888'})),
                     DATA.style);
@@ -626,7 +626,7 @@ async function apply(){
   const btn=$('#btnApply'),was=btn.textContent;
   btn.disabled=true;btn.textContent='套用中';
   try{
-    const r=await api(`/api/${PID}/turns`,{method:'PUT',
+    const r=await api(`/api/${PIDE}/turns`,{method:'PUT',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({turns:DATA.turns,names:DATA.names})});
     $('#stat').textContent=`${r.tokens} 詞`+
@@ -639,7 +639,7 @@ async function apply(){
 /* ---------------- style + preview ---------------- */
 async function pushStyle(){
   if(!PID||!STYLE)return;
-  STYLE=await api(`/api/${PID}/style`,{method:'PUT',
+  STYLE=await api(`/api/${PIDE}/style`,{method:'PUT',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({style:{
       size:+$('#cSize').value,overlay_y:+$('#cY').value,
@@ -649,7 +649,7 @@ async function pushStyle(){
                             color:$('#c'+i).value}));
   if(JSON.stringify(next)!==JSON.stringify(SPEAKERS)){
     const before=SPEAKERS.map(s=>s.name);
-    SPEAKERS=(await api(`/api/${PID}/speakers`,{method:'PUT',
+    SPEAKERS=(await api(`/api/${PIDE}/speakers`,{method:'PUT',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({speakers:next})})).speakers;
     DATA.names=SPEAKERS.map(s=>s.name);
@@ -684,7 +684,7 @@ async function openGrades(){
   $('#gradestrip').innerHTML='<div style="padding:2rem;color:var(--dim)">產生對照中…</div>';
   $('#gradesheet').classList.add('on');
   const gs=(await api('/api/grades')).filter(g=>g.id!=='lut');
-  const url=`/api/${PID}/grade-strip?t=${t}&_=${Date.now()}`;
+  const url=`/api/${PIDE}/grade-strip?t=${t}&_=${Date.now()}`;
   const im=new Image();
   im.onload=()=>{
     const tile=im.width/gs.length;
@@ -735,7 +735,7 @@ function refreshSample(){
     const w=$('.samplewrap');w.classList.add('busy');
     const im=$('#sampleimg');
     im.onload=im.onerror=()=>w.classList.remove('busy');
-    im.src=`/api/${PID}/style-sample?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
+    im.src=`/api/${PIDE}/style-sample?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
   },220);
 }
 
@@ -760,7 +760,7 @@ async function pushPanel(){
     const v=$('#'+id).value;
     patch[k]=$('#'+id).type==='color'?v:+v;
   }
-  STYLE=await api(`/api/${PID}/style`,{method:'PUT',
+  STYLE=await api(`/api/${PIDE}/style`,{method:'PUT',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({style:patch})});
   const keep=CUES?{overlay_y:CUES.style.overlay_y,offset_x:CUES.style.offset_x}:null;
   await loadCues();
@@ -773,7 +773,7 @@ Object.keys(SFIELDS).concat(['sFace']).forEach(id=>$('#'+id).onchange=pushPanel)
 
 $('#btnStyleReset').onclick=async()=>{
   const d=await api('/api/settings');
-  STYLE=await api(`/api/${PID}/style`,{method:'PUT',
+  STYLE=await api(`/api/${PIDE}/style`,{method:'PUT',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({style:d.style})});
   openStyle();await loadCues();layoutCap();
 };
@@ -796,7 +796,7 @@ const cap=$('#caplayer');
 let CUES=null,CUEI=-1,RAF=null;
 
 async function loadCues(){
-  try{CUES=await api(`/api/${PID}/cues`)}catch(e){CUES=null}
+  try{CUES=await api(`/api/${PIDE}/cues`)}catch(e){CUES=null}
   setCap(!!CUES && $('#showcap').checked);
 }
 
@@ -887,7 +887,7 @@ function endDrag(){
   rule.classList.remove('on');badge.classList.remove('on');
   $('#cY').value=CUES.style.overlay_y;
   // position is saved by the drag itself, nowhere else
-  api(`/api/${PID}/style`,{method:'PUT',headers:{'Content-Type':'application/json'},
+  api(`/api/${PIDE}/style`,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({style:{overlay_y:CUES.style.overlay_y,
                                 offset_x:CUES.style.offset_x}})})
     .then(st=>{STYLE=st;if($('#stylesheet').classList.contains('on'))refreshSample()});
@@ -904,7 +904,7 @@ function refreshPreview(){
   pt=setTimeout(()=>{
     screenEl.classList.add('busy');
     img.onload=img.onerror=()=>screenEl.classList.remove('busy');
-    img.src=`/api/${PID}/preview?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
+    img.src=`/api/${PIDE}/preview?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
     img.classList.add('on');
   },60);
 }
@@ -931,14 +931,14 @@ const seekBy=d=>vid.currentTime=Math.max(0,vid.currentTime+d);
 
 async function render(){
   await apply();
-  await api(`/api/${PID}/render`,{method:'POST'});
+  await api(`/api/${PIDE}/render`,{method:'POST'});
   watch(()=>{
-    vid.src=`/api/${PID}/video?which=final&t=${Date.now()}`;
+    vid.src=`/api/${PIDE}/video?which=final&t=${Date.now()}`;
     setCap(false);
     $('#stat').textContent='出片完成';
   });
 }
-const reveal=()=>PID&&fetch(`/api/${PID}/reveal`,{method:'POST'});
+const reveal=()=>PID&&fetch(`/api/${PIDE}/reveal`,{method:'POST'});
 
 (async function boot(){
   try{const b=await api('/api/build');$('#build').textContent=b.build}catch(e){}
