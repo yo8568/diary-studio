@@ -85,6 +85,14 @@ main{flex:1;display:grid;grid-template-columns:minmax(320px,40%) 1fr;min-height:
   object-fit:contain;display:block}
 #screen #previewimg{display:none}
 #screen #previewimg.on{display:block}
+
+/* Live caption layer. Drawn in the page so the preview plays; geometry is the
+   render's, scaled to however large the video is showing. */
+#caplayer{position:absolute;left:0;top:0;pointer-events:none;display:none;
+  text-align:center;white-space:nowrap}
+#caplayer.on{display:block}
+#caplayer b{font-weight:500;display:inline-block}
+#caplayer .off{color:var(--capbase,#F2EDE4)}
 #screen.busy::after{content:"";position:absolute;left:0;right:0;height:2px;
   background:linear-gradient(90deg,transparent,var(--spk1),transparent);
   animation:scanv 1.9s ease-in-out infinite}
@@ -150,6 +158,26 @@ footer{border-top:1px solid var(--line);background:var(--panel);
 .swatch input[type=number]{width:4.4rem}
 footer .spacer{flex:1}
 
+/* ---------------- grade comparison ---------------- */
+#gradesheet{position:fixed;inset:0;background:rgba(13,18,21,.88);z-index:15;
+  display:none;align-items:center;justify-content:center;padding:2rem}
+#gradesheet.on{display:flex}
+#gradesheet .sheet{background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--r);max-width:min(96vw,1400px);width:100%;overflow:hidden}
+.sheethead{display:flex;align-items:center;gap:.7rem;padding:.7rem 1rem;
+  border-bottom:1px solid var(--line);font-size:.9rem}
+.sheethead .spacer{flex:1}
+#gradeat{color:var(--dim);font-size:.78rem}
+#gradestrip{display:flex;overflow-x:auto}
+.gopt{flex:0 0 auto;border:none;border-radius:0;padding:0;background:none;
+  display:flex;flex-direction:column;border-right:1px solid var(--line)}
+.gopt:hover{background:none}
+.gopt img{display:block;width:170px;height:auto}
+.gopt span{padding:.4rem;font-size:.8rem;color:var(--dim);text-align:center}
+.gopt.sel span{color:var(--bg);background:var(--fg);font-weight:600}
+.gopt:hover span{color:var(--fg)}
+.gopt.sel:hover span{color:var(--bg)}
+
 /* ---------------- picker ---------------- */
 #picker{position:fixed;inset:0;background:var(--bg);z-index:20;display:none;
   flex-direction:column;padding:1.6rem 1.8rem;gap:1rem;overflow:auto}
@@ -202,7 +230,8 @@ footer .spacer{flex:1}
   <section id="stage">
     <div id="screen">
       <video id="vid" controls preload="metadata" playsinline></video>
-      <img id="previewimg" alt="字幕預覽">
+      <div id="caplayer"></div>
+      <img id="previewimg" alt="精確定格">
     </div>
 
     <div id="trackwrap">
@@ -216,7 +245,8 @@ footer .spacer{flex:1}
       <button class="ghost" onclick="seekBy(5)">+5s</button>
       <span id="tc" class="num">00:00.00</span>
       <span class="spacer"></span>
-      <label class="toggle"><input type="checkbox" id="showcap"> 字幕預覽</label>
+      <label class="toggle"><input type="checkbox" id="showcap" checked> 字幕預覽</label>
+      <button class="ghost" id="btnExact" title="用出片同一支繪圖程式算這一格">精確定格</button>
     </div>
   </section>
 
@@ -236,10 +266,20 @@ footer .spacer{flex:1}
   <div class="swatch"><input type="color" id="cB" value="#93C572">B</div>
   <div class="swatch">字級<input type="number" id="cSize" value="68" min="40" max="110"></div>
   <div class="swatch">高度<input type="number" id="cY" value="1330" min="200" max="1750" step="10"></div>
+  <div class="swatch">濾鏡<select id="cGrade"></select>
+    <button class="ghost" id="btnGrades" title="用目前畫面比較所有濾鏡">比較</button></div>
   <div class="spacer"></div>
   <button id="btnRender" class="primary" onclick="render()" disabled>出片</button>
   <button class="ghost" onclick="reveal()">在 Finder 顯示</button>
 </footer>
+
+<div id="gradesheet"><div class="sheet">
+  <div class="sheethead"><b>選一個濾鏡</b>
+    <span id="gradeat" class="num"></span>
+    <span class="spacer"></span>
+    <button class="ghost" onclick="closeGrades()">關閉</button></div>
+  <div id="gradestrip"></div>
+</div></div>
 
 <div id="picker" class="on">
   <h2>選一支影片</h2>
@@ -360,7 +400,7 @@ async function transcribe(){
     '<div class="skel"><div></div><div></div></div>').join('');
   await api(`/api/${PID}/transcribe`,{method:'POST'});
   watch(async()=>{
-    await loadTurns();await loadTrack();
+    await loadTurns();await loadTrack();await loadCues();
     vid.src=`/api/${PID}/video?which=fast&t=${Date.now()}`;
   });
 }
@@ -405,6 +445,7 @@ async function loadTurns(){
   STYLE=DATA.style;DUR=DATA.duration||DUR;
   $('#cA').value=STYLE.spk0;$('#cB').value=STYLE.spk1;
   $('#cSize').value=STYLE.size;$('#cY').value=STYLE.overlay_y;
+  if($('#cGrade').options.length)$('#cGrade').value=STYLE.grade||'none';
   applyVars();renderTurns();
   $('#btnApply').disabled=false;$('#btnRender').disabled=false;
   // the transcript exists now, so shipping becomes the primary action
@@ -475,8 +516,7 @@ async function apply(){
       body:JSON.stringify({turns:DATA.turns,names:DATA.names})});
     $('#stat').textContent=`${r.tokens} 詞`+
       (r.dropped_words?` · 隱藏 ${r.dropped_words} 詞`:'')+` · 對齊 ${(r.similarity*100).toFixed(1)}%`;
-    await loadTrack();
-    if($('#showcap').checked)refreshPreview();
+    await loadTrack();await loadCues();
   }catch(e){alert('套用失敗：'+e.message)}
   btn.textContent=was;btn.disabled=false;
 }
@@ -487,33 +527,136 @@ async function pushStyle(){
   STYLE=await api(`/api/${PID}/style`,{method:'PUT',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({style:{spk0:$('#cA').value,spk1:$('#cB').value,
-      size:+$('#cSize').value,overlay_y:+$('#cY').value}})});
+      size:+$('#cSize').value,overlay_y:+$('#cY').value,
+      grade:$('#cGrade').value}})});
   applyVars();renderTurns();drawTrack();
-  if($('#showcap').checked)refreshPreview();
+  await loadCues();
 }
-['cA','cB','cSize','cY'].forEach(id=>$('#'+id).onchange=pushStyle);
+['cA','cB','cSize','cY','cGrade'].forEach(id=>$('#'+id).onchange=pushStyle);
 
+const closeGrades=()=>$('#gradesheet').classList.remove('on');
+async function openGrades(){
+  if(!PID)return;
+  vid.pause();
+  const t=vid.currentTime.toFixed(2);
+  $('#gradeat').textContent=`第 ${tc(vid.currentTime)} 格`;
+  $('#gradestrip').innerHTML='<div style="padding:2rem;color:var(--dim)">產生對照中…</div>';
+  $('#gradesheet').classList.add('on');
+  const gs=(await api('/api/grades')).filter(g=>g.id!=='lut');
+  const url=`/api/${PID}/grade-strip?t=${t}&_=${Date.now()}`;
+  const im=new Image();
+  im.onload=()=>{
+    const tile=im.width/gs.length;
+    $('#gradestrip').innerHTML='';
+    gs.forEach((g,i)=>{
+      const b=document.createElement('button');
+      b.className='gopt'+(g.id===(STYLE?.grade||'none')?' sel':'');
+      const c=document.createElement('canvas');
+      c.width=tile;c.height=im.height;
+      c.getContext('2d').drawImage(im,-i*tile,0);
+      const pic=new Image();pic.src=c.toDataURL();
+      b.appendChild(pic);
+      const s=document.createElement('span');s.textContent=g.label;b.appendChild(s);
+      b.onclick=async()=>{
+        $('#cGrade').value=g.id;await pushStyle();
+        document.querySelectorAll('.gopt').forEach(x=>x.classList.remove('sel'));
+        b.classList.add('sel');
+      };
+      $('#gradestrip').appendChild(b);
+    });
+  };
+  im.onerror=()=>{$('#gradestrip').innerHTML=
+    '<div style="padding:2rem;color:var(--alert)">對照圖產生失敗</div>'};
+  im.src=url;
+}
+$('#btnGrades').onclick=openGrades;
+
+async function loadGrades(){
+  const gs=await api('/api/grades');
+  $('#cGrade').innerHTML=gs.filter(g=>g.id!=='lut')
+    .map(g=>`<option value="${g.id}">${g.label}</option>`).join('');
+}
+
+/* ---------------- live caption overlay ---------------- */
+const cap=$('#caplayer');
+let CUES=null,CUEI=-1,RAF=null;
+
+async function loadCues(){
+  try{CUES=await api(`/api/${PID}/cues`)}catch(e){CUES=null}
+  layoutCap();
+}
+
+/* The render draws into a 1080x1920 frame; the page shows that frame at
+   whatever size fits. Everything below is that one scale factor. */
+function videoBox(){
+  const W=screenEl.clientWidth,H=screenEl.clientHeight;
+  const vw=vid.videoWidth||1080,vh=vid.videoHeight||1920;
+  const s=Math.min(W/vw,H/vh);
+  return {w:vw*s,h:vh*s,x:(W-vw*s)/2,y:(H-vh*s)/2,s:s*(1080/vw)};
+}
+function layoutCap(){
+  if(!CUES)return;
+  const st=CUES.style,b=videoBox();
+  cap.style.left=`${b.x}px`;
+  cap.style.width=`${b.w}px`;
+  // overlay_y is measured in the 1920-tall render frame
+  cap.style.top=`${b.y+(st.overlay_y+40)*(b.h/1920)}px`;
+  cap.style.fontSize=`${st.size*(b.h/1920)}px`;
+  cap.style.letterSpacing=`${st.track*(b.h/1920)}px`;
+  const sw=Math.max(1,st.stroke*(b.h/1920));
+  cap.style.webkitTextStrokeWidth=`${sw}px`;
+  cap.style.webkitTextStrokeColor=st.ink;
+  cap.style.setProperty('--capbase',st.base);
+  cap.style.textShadow=`0 ${Math.round(sw*0.8)}px ${Math.round(sw*1.6)}px ${st.ink}`;
+  cap.style.fontFamily='"PingFang TC","Hiragino Sans",sans-serif';
+  drawCap(true);
+}
+function drawCap(force){
+  if(!CUES||!cap.classList.contains('on'))return;
+  const t=vid.currentTime;
+  const i=CUES.cues.findIndex(c=>t>=c.start&&t<=c.end);
+  if(i<0){if(CUEI!==-1){cap.innerHTML='';CUEI=-1}return}
+  const c=CUES.cues[i];
+  const lit=c.words.filter(w=>w.start<=t).length;
+  if(!force&&i===CUEI&&cap.dataset.lit==String(lit))return;
+  CUEI=i;cap.dataset.lit=String(lit);
+  const accent=c.spk===0?CUES.style.spk0:CUES.style.spk1;
+  cap.innerHTML=c.words.map((w,k)=>
+    `<b style="color:${k<lit?accent:CUES.style.base}">${esc(w.text)}</b>`).join('');
+}
+function loop(){drawCap();RAF=requestAnimationFrame(loop)}
+
+$('#showcap').onchange=e=>{
+  const on=e.target.checked;
+  cap.classList.toggle('on',on);
+  img.classList.remove('on');vid.style.visibility='visible';
+  if(on){layoutCap();if(!RAF)loop()}
+  else{cancelAnimationFrame(RAF);RAF=null;cap.innerHTML='';CUEI=-1}
+};
+addEventListener('resize',layoutCap);
+vid.addEventListener('loadedmetadata',layoutCap);
+
+/* the exact frame, drawn by the same code that renders the file */
 let pt=null;
 function refreshPreview(){
   clearTimeout(pt);
   pt=setTimeout(()=>{
     screenEl.classList.add('busy');
-    const u=`/api/${PID}/preview?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
     img.onload=img.onerror=()=>screenEl.classList.remove('busy');
-    img.src=u;
-  },180);
+    img.src=`/api/${PID}/preview?t=${vid.currentTime.toFixed(2)}&_=${Date.now()}`;
+    img.classList.add('on');
+  },60);
 }
-$('#showcap').onchange=e=>{
-  const on=e.target.checked;
-  img.classList.toggle('on',on);
-  vid.style.visibility=on?'hidden':'visible';
-  if(on)refreshPreview();else screenEl.classList.remove('busy');
+$('#btnExact').onclick=()=>{
+  if(!PID)return;
+  vid.pause();
+  if(img.classList.contains('on')){img.classList.remove('on');return}
+  refreshPreview();
 };
 
 vid.addEventListener('timeupdate',()=>{
   $('#tc').textContent=tc(vid.currentTime);
   if(DUR)$('#playhead').style.left=`${vid.currentTime/DUR*100}%`;
-  if($('#showcap').checked&&vid.paused)refreshPreview();
   if(!DATA)return;
   const i=DATA.turns.findIndex(t=>vid.currentTime>=t.start&&vid.currentTime<=t.end);
   document.querySelectorAll('.turn').forEach(el=>{
@@ -522,7 +665,6 @@ vid.addEventListener('timeupdate',()=>{
     el.classList.toggle('active',on);
   });
 });
-vid.addEventListener('pause',()=>{if($('#showcap').checked)refreshPreview()});
 vid.addEventListener('loadedmetadata',()=>{if(vid.duration)DUR=vid.duration});
 const seekBy=d=>vid.currentTime=Math.max(0,vid.currentTime+d);
 
@@ -531,13 +673,15 @@ async function render(){
   await api(`/api/${PID}/render`,{method:'POST'});
   watch(()=>{
     vid.src=`/api/${PID}/video?which=final&t=${Date.now()}`;
-    $('#showcap').checked=false;img.classList.remove('on');vid.style.visibility='visible';
+    $('#showcap').checked=false;cap.classList.remove('on');cap.innerHTML='';
+    cancelAnimationFrame(RAF);RAF=null;img.classList.remove('on');vid.style.visibility='visible';
     $('#stat').textContent='出片完成';
   });
 }
 const reveal=()=>PID&&fetch(`/api/${PID}/reveal`,{method:'POST'});
 
 (async function boot(){
+  try{await loadGrades()}catch(e){}
   const want=new URLSearchParams(location.search).get('p')
     ||(()=>{try{return localStorage.getItem('diary:last')}catch(e){return null}})();
   if(want){

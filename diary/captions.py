@@ -14,7 +14,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-from .pipeline import Project, Style, run
+from .pipeline import Project, Style, run, grade_filter
 
 FONT = ("/System/Library/AssetsV2/com_apple_MobileAsset_Font7/"
         "3419f2a427639ad8c8e139149a287865a90fa17e.asset/AssetData/PingFang.ttc")
@@ -229,8 +229,11 @@ def preview_frame(p: Project, t: float) -> Path:
     """Composite the caption onto the real frame at `t` - the honest preview."""
     cues = json.loads(p.path("cues.json").read_text())
     bg_path = p.path("_preview_bg.png")
-    run(["ffmpeg", "-y", "-v", "error", "-ss", str(t), "-i", str(p.fast),
-         "-vframes", "1", str(bg_path)])
+    cmd = ["ffmpeg", "-y", "-v", "error", "-ss", str(t), "-i", str(p.fast)]
+    g = grade_filter(p.style)
+    if g:
+        cmd += ["-vf", g]
+    run(cmd + ["-vframes", "1", str(bg_path)])
     bg = Image.open(bg_path).convert("RGBA")
     hit = [c for c in cues["cues"] if c["start"] <= t <= c["end"]]
     if hit:
@@ -287,10 +290,13 @@ def render(p: Project, progress=lambda s, f=0.0: None) -> Path:
         fh.write(f"file '{entries[-1][0].resolve()}'\n")
 
     progress("合成影片", 0.65)
+    g = grade_filter(p.style)
+    base = f"[0:v]{g}[g];" if g else ""
+    src = "[g]" if g else "[0:v]"
     run(["ffmpeg", "-y", "-v", "error", "-i", str(p.fast),
          "-f", "concat", "-safe", "0", "-i", str(listing),
          "-filter_complex",
-         f"[1:v]fps=60,format=rgba[ov];[0:v][ov]"
+         f"{base}[1:v]fps=60,format=rgba[ov];{src}[ov]"
          f"overlay=x=0:y={p.style.overlay_y}:eof_action=pass[v]",
          "-map", "[v]", "-map", "0:a",
          "-c:v", "libx264", "-preset", "medium", "-crf", "19",

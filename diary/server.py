@@ -245,6 +245,70 @@ def put_style(pid: str, req: StyleIn):
     return raw["style"]
 
 
+@app.get("/api/grades")
+def grades():
+    from .pipeline import GRADES
+    return [{"id": k, "label": v["label"]} for k, v in GRADES.items()]
+
+
+@app.get("/api/{pid}/grade-strip")
+def grade_strip(pid: str, t: float):
+    """One frame through every grade, side by side — picking a look from names
+    alone is guesswork, and each strip costs about a second."""
+    from PIL import Image
+    from .pipeline import GRADES, Style, grade_filter
+
+    p = _project(pid)
+    tiles, labels = [], []
+    for k, v in GRADES.items():
+        if k == "lut" and not p.style.lut:
+            continue
+        st = Style(**{**json.loads(p.path("project.json").read_text())["style"],
+                      "grade": k})
+        out = p.path(f"_g_{k}.png")
+        cmd = ["ffmpeg", "-y", "-v", "error", "-ss", str(t), "-i", str(p.fast)]
+        f = grade_filter(st)
+        if f:
+            cmd += ["-vf", f]
+        try:
+            from .pipeline import run as _run
+            _run(cmd + ["-vframes", "1", str(out)])
+            tiles.append(Image.open(out).convert("RGB"))
+            labels.append(v["label"])
+        except Exception:
+            continue
+    if not tiles:
+        raise HTTPException(500, "無法產生對照圖")
+
+    tw = 240
+    th = int(tiles[0].height * tw / tiles[0].width)
+    sheet = Image.new("RGB", (tw * len(tiles), th), (13, 18, 21))
+    for i, im in enumerate(tiles):
+        sheet.paste(im.resize((tw, th)), (i * tw, 0))
+    dest = p.path("grades.png")
+    sheet.save(dest)
+    # labels stay out of the headers: HTTP headers are latin-1 and these are 中文
+    p.path("grades.json").write_text(json.dumps({"labels": labels, "tile": tw},
+                                                ensure_ascii=False))
+    return FileResponse(dest, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/{pid}/cues")
+def cues(pid: str):
+    """Caption blocks for the live overlay. Drawing them in the page means the
+    preview plays; the server render stays for checking exact output."""
+    p = _project(pid)
+    f = p.path("cues.json")
+    if not f.exists():
+        if not p.path("caption-words.json").exists():
+            raise HTTPException(409, "尚未產生字幕")
+        captions.build_cues(p)
+    d = json.loads(f.read_text())
+    d["style"] = json.loads(p.path("project.json").read_text())["style"]
+    return d
+
+
 @app.get("/api/{pid}/preview")
 def preview(pid: str, t: float):
     p = _project(pid)

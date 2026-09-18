@@ -40,6 +40,43 @@ class Style:
     overlay_y: int = 1330
     max_chars: int = 11
     font_index: int = 6            # PingFang TC Medium
+    grade: str = "none"            # see GRADES
+    lut: str = ""                  # path to a .cube, used when grade == "lut"
+
+
+# Colour grades, applied to the footage *before* the captions go on — grading
+# afterwards would drag the caption colours along with it.
+GRADES: dict[str, dict] = {
+    "none":  {"label": "原始", "filter": ""},
+    "warm":  {"label": "暖陽",
+              "filter": "eq=contrast=1.06:saturation=1.08,"
+                        "colorbalance=rs=.04:gs=.01:bs=-.04:rm=.03:bm=-.03"},
+    "film":  {"label": "底片",
+              "filter": "curves=r='0/0.04 0.5/0.52 1/0.98':"
+                        "g='0/0.03 0.5/0.5 1/0.97':b='0/0.06 0.5/0.48 1/0.94',"
+                        "eq=saturation=0.92:contrast=1.03"},
+    "clean": {"label": "清透",
+              "filter": "eq=contrast=1.1:saturation=1.05:gamma=1.03,"
+                        "unsharp=5:5:0.5"},
+    "cool":  {"label": "冷靜",
+              "filter": "eq=contrast=1.05:saturation=0.97,"
+                        "colorbalance=rs=-.04:bs=.05:rm=-.02:bm=.04"},
+    "soft":  {"label": "柔霧",
+              "filter": "curves=all='0/0.07 0.5/0.52 1/0.96',"
+                        "eq=saturation=0.95,gblur=sigma=0.6"},
+    "bw":    {"label": "黑白",
+              "filter": "hue=s=0,eq=contrast=1.12:gamma=1.02"},
+    "lut":   {"label": "自訂 LUT", "filter": ""},
+}
+
+
+def grade_filter(style: Style) -> str:
+    """ffmpeg filter chain for the chosen grade, or '' for none."""
+    if style.grade == "lut" and style.lut:
+        path = str(Path(style.lut).expanduser()).replace("\\", "/")
+        path = path.replace(":", r"\:").replace("'", r"\'")
+        return f"lut3d=file='{path}'"
+    return GRADES.get(style.grade, {}).get("filter", "")
 
 
 @dataclass
