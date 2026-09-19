@@ -30,6 +30,18 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIconFile</key><string>app.icns</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleDocumentTypes</key>
+  <array><dict>
+    <key>CFBundleTypeName</key><string>Video</string>
+    <key>CFBundleTypeRole</key><string>Editor</string>
+    <key>LSHandlerRank</key><string>Alternate</string>
+    <key>LSItemContentTypes</key>
+    <array>
+      <string>public.movie</string>
+      <string>public.mpeg-4</string>
+      <string>com.apple.quicktime-movie</string>
+    </array>
+  </dict></array>
 </dict></plist>
 PLIST
 

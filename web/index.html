@@ -584,6 +584,12 @@ function applyVars(){
 
 function renderTurns(){
   const box=$('#turns');box.innerHTML='';
+  if(!DATA.turns.length){
+    box.innerHTML='<p style="padding:1.1rem;color:var(--dim);font-size:.88rem">'+
+      '這支影片裡沒有偵測到語音，所以沒有字幕可編輯。</p>';
+    $('#estat').textContent='0 輪次';
+    return;
+  }
   const low=DATA.turns.filter(t=>t.confidence<0.05).length;
   $('#estat').textContent=`${DATA.turns.length} 輪次`+(low?` · ${low} 個信心不足`:'');
   DATA.turns.forEach((t,i)=>{
@@ -996,6 +1002,14 @@ const reveal=()=>PID&&fetch(`/api/${PIDE}/reveal`,{method:'POST'});
 (async function boot(){
   try{const b=await api('/api/build');$('#build').textContent=b.build}catch(e){}
   try{await loadGrades();await loadFonts()}catch(e){}
+  /* A file dropped on the app icon arrives as ?open=<path>; it takes priority
+     over restoring the last project, because it is an explicit request. */
+  const opening=new URLSearchParams(location.search).get('open');
+  if(opening){
+    $('#picker').classList.remove('on');
+    try{await pick(opening);return}
+    catch(e){alert('開啟失敗：'+(e.message||opening))}
+  }
   const want=new URLSearchParams(location.search).get('p')
     ||(()=>{try{return localStorage.getItem('diary:last')}catch(e){return null}})();
   if(want){

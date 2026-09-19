@@ -190,6 +190,12 @@ def run(cmd: list[str]):
     return p.stdout
 
 
+def has_audio(path: Path) -> bool:
+    out = run(["ffprobe", "-v", "error", "-select_streams", "a",
+               "-show_entries", "stream=index", "-of", "csv=p=0", str(path)])
+    return bool(out.strip())
+
+
 def probe(path: Path) -> dict:
     out = run(["ffprobe", "-v", "error", "-select_streams", "v:0",
                "-show_entries", "stream=width,height,r_frame_rate",
@@ -226,20 +232,38 @@ def prepare(p: Project, progress=lambda s: None):
               "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
               # moov at the front, so a player gets what it needs in one read
               "-movflags", "+faststart"]
+
+    # A silent source (screen recordings, some exports) has no [0:a] to speed up
+    # or extract; give it silence so the rest of the pipeline has one shape.
+    src = ["-i", str(p.source)]
+    audio_in = "[0:a]"
+    if not has_audio(p.source):
+        src += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-shortest"]
+        audio_in = "[1:a]"
+
     if p.rate == 1.0:
-        run(["ffmpeg", "-y", "-v", "error", "-i", str(p.source)]
-            + common + [str(tmp)])
+        run(["ffmpeg", "-y", "-v", "error"] + src
+            + ["-map", "0:v", "-map", audio_in.strip("[]")] + common + [str(tmp)])
     else:
-        run(["ffmpeg", "-y", "-v", "error", "-i", str(p.source),
-             "-filter_complex",
-             f"[0:v]setpts=PTS/{p.rate}[v];[0:a]atempo={p.rate}[a]",
-             "-map", "[v]", "-map", "[a]", "-r", "60"]
+        run(["ffmpeg", "-y", "-v", "error"] + src
+            + ["-filter_complex",
+               f"[0:v]setpts=PTS/{p.rate}[v];{audio_in}atempo={p.rate}[a]",
+               "-map", "[v]", "-map", "[a]", "-r", "60"]
             + common + [str(tmp)])
     import os
     os.replace(tmp, p.fast)
     progress("抽音軌")
-    run(["ffmpeg", "-y", "-v", "error", "-i", str(p.source), "-vn",
-         "-ac", "1", "-ar", str(SR), "-c:a", "pcm_s16le", str(p.path("audio.wav"))])
+    # analysis timestamps are on the source timeline, so the audio comes from
+    # the source - synthesised as silence when there is none to take
+    if has_audio(p.source):
+        run(["ffmpeg", "-y", "-v", "error", "-i", str(p.source), "-vn",
+             "-ac", "1", "-ar", str(SR), "-c:a", "pcm_s16le",
+             str(p.path("audio.wav"))])
+    else:
+        dur = probe(p.source)["duration"]
+        run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+             "-i", f"anullsrc=r={SR}:cl=mono", "-t", f"{dur:.3f}",
+             "-c:a", "pcm_s16le", str(p.path("audio.wav"))])
     p.save()
 
 
@@ -283,6 +307,7 @@ def transcribe(p: Project, progress=lambda s: None) -> dict:
               "end": round(w["end"], 3)}
              for seg in r.get("segments", []) for w in seg.get("words", [])]
 
+    words = _drop_silent(p, words)
     words += _recover(p, words, mlx_whisper, progress)
     words.sort(key=lambda w: w["start"])
     words = _fix_degenerate(words)
@@ -296,6 +321,27 @@ def transcribe(p: Project, progress=lambda s: None) -> dict:
     p.path("transcript.json").write_text(
         json.dumps({"words": words}, ensure_ascii=False, indent=1))
     return {"words": len(words)}
+
+
+def _drop_silent(p: Project, words: list[dict]) -> list[dict]:
+    """Remove words Whisper placed over silence.
+
+    Given near-silent audio it reaches for its training data and emits things
+    like "中文字幕由…" with confident timings. Rather than blocklisting phrases,
+    drop anything whose own span never rises above the noise floor: no sound,
+    no word.
+    """
+    if not words:
+        return words
+    db = envelope(load_audio(p.path("audio.wav")))
+    thr = float(np.percentile(db, 10)) + 6.0
+    kept = []
+    for w in words:
+        lo, hi = int(w["start"] / FRAME), max(int(w["end"] / FRAME), int(w["start"] / FRAME) + 1)
+        seg = db[lo:hi]
+        if seg.size == 0 or float(seg.max()) > thr:
+            kept.append(w)
+    return kept
 
 
 def _recover(p: Project, words, mlx_whisper, progress=lambda *a: None) -> list[dict]:

@@ -65,6 +65,11 @@ def diarize(p: Project, progress=lambda s: None) -> dict:
     """Label every word, with a per-word evidence score."""
     names = p.names
     words = json.loads(p.path("transcript.json").read_text())["words"]
+    if not words:                       # nothing was said; nothing to attribute
+        p.path("speakers.json").write_text(json.dumps(
+            {"labels": [], "evidence": [], "names": list(names),
+             "source": "empty"}, ensure_ascii=False))
+        return {"source": "empty", "low_confidence_words": 0}
     x = load_audio(p.path("audio.wav"))
     dur = len(x) / SR
     spans = [(w["start"] * p.rate, w["end"] * p.rate) for w in words]
@@ -77,6 +82,14 @@ def diarize(p: Project, progress=lambda s: None) -> dict:
         if spoken[int(t / FRAME):int((t + WIN) / FRAME)].mean() > 0.5:
             segs.append((t, t + WIN))
         t += HOP
+
+    if not segs:
+        # words but no voiced windows: whisper hallucinating over near-silence.
+        # There is nothing to attribute, so say so instead of dividing by it.
+        p.path("speakers.json").write_text(json.dumps(
+            {"labels": [0] * len(words), "evidence": [0.0] * len(words),
+             "names": list(names), "source": "silent"}, ensure_ascii=False))
+        return {"source": "silent", "low_confidence_words": len(words)}
 
     progress("載入聲紋模型", 0.8)
     enc = _encoder()
@@ -149,6 +162,8 @@ def learn_voices(p: Project):
     names = p.names
     words = json.loads(p.path("transcript.json").read_text())["words"]
     lab = json.loads(p.path("speakers.json").read_text())["labels"]
+    if not words or not lab:
+        return {"learned": list(load_voices())}
     x = load_audio(p.path("audio.wav"))
 
     runs = {0: [], 1: []}

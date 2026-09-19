@@ -34,6 +34,47 @@ def _wait(url: str, timeout=30.0) -> bool:
     return False
 
 
+def _watch_opened_files(window, base_url):
+    """Take files dropped on the app icon, or opened with "Open With".
+
+    macOS delivers those as an Apple Event, not argv. NSApplication installs its
+    own handler for that event while finishing launch — after any we register —
+    and then forwards to `application:openFile:` on its delegate. pywebview owns
+    that delegate and does not implement the method, so the event was being
+    dropped. Adding the method to its class is what actually gets the file.
+    """
+    from urllib.parse import quote
+
+    try:
+        import objc
+        from webview.platforms.cocoa import BrowserView
+    except Exception as e:                       # not on macOS, or no PyObjC
+        print(f"（開檔事件未註冊：{e}）")
+        return
+
+    def application_openFile_(self, app, path):
+        try:
+            window.load_url(f"{base_url}?open={quote(str(path))}")
+        except Exception as err:
+            print(f"開檔事件處理失敗：{err}")
+        return True
+
+    def application_openFiles_(self, app, paths):
+        if paths:
+            application_openFile_(self, app, paths[0])
+
+    try:
+        objc.classAddMethods(BrowserView.AppDelegate,
+                             [objc.selector(application_openFile_,
+                                            selector=b"application:openFile:",
+                                            signature=b"B@:@@"),
+                              objc.selector(application_openFiles_,
+                                            selector=b"application:openFiles:",
+                                            signature=b"v@:@@")])
+    except Exception as e:
+        print(f"（開檔事件未註冊：{e}）")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="diary")
     ap.add_argument("--browser", action="store_true", help="用預設瀏覽器開啟")
@@ -52,8 +93,9 @@ def main():
     if not a.browser:
         try:
             import webview
-            webview.create_window("Diary Studio", url, width=1280, height=860,
-                                  min_size=(900, 640))
+            window = webview.create_window("Diary Studio", url, width=1280,
+                                           height=860, min_size=(900, 640))
+            _watch_opened_files(window, url)
             webview.start()
             return
         except Exception as e:
