@@ -308,6 +308,16 @@ def put_speakers(pid: str, req: SpeakersIn):
     old = p.names
     p.speakers = [Speaker(**s) for s in req.speakers]
     p.save()
+    # the voice bank is keyed by name; without this a rename orphans everything
+    # learnt so far and every later clip silently falls back to guessing
+    try:
+        bank = diarize.load_voices()
+        if any(o in bank for o in old):
+            diarize.save_voices({p.names[i] if o in bank else o: bank[o]
+                                 for i, o in enumerate(old) if o in bank}
+                                | {k: v for k, v in bank.items() if k not in old})
+    except Exception:
+        pass
     for f in ("turns.json", "caption-words.json", "cues.json"):
         path = p.path(f)
         if not path.exists():

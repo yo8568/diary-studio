@@ -61,7 +61,7 @@ def save_voices(v: dict[str, np.ndarray]):
     VOICES.write_text(json.dumps({k: np.asarray(x).tolist() for k, x in v.items()}))
 
 
-def diarize(p: Project, progress=lambda s: None) -> dict:
+def diarize(p: Project, progress=lambda *a: None) -> dict:
     """Label every word, with a per-word evidence score."""
     names = p.names
     words = json.loads(p.path("transcript.json").read_text())["words"]
@@ -110,14 +110,10 @@ def diarize(p: Project, progress=lambda s: None) -> dict:
         d_all = E @ ref[names[0]] - E @ ref[names[1]]
         source = "reference"
     else:
-        from sklearn.cluster import AgglomerativeClustering
-        lab2 = AgglomerativeClustering(n_clusters=2, metric="cosine",
-                                       linkage="average").fit_predict(E)
-        c0 = E[lab2 == 0].mean(0); c0 /= np.linalg.norm(c0)
-        c1 = E[lab2 == 1].mean(0); c1 /= np.linalg.norm(c1)
+        c0, c1 = _two_voices(E)
         # no reference yet: the more talkative cluster becomes the first name,
         # which the person flips in one click if it is the wrong way round
-        if (lab2 == 1).sum() > (lab2 == 0).sum():
+        if (E @ c1 > E @ c0).sum() > (E @ c0 >= E @ c1).sum():
             c0, c1 = c1, c0
         d_all = E @ c0 - E @ c1
         source = "cluster"
@@ -136,6 +132,48 @@ def diarize(p: Project, progress=lambda s: None) -> dict:
          "names": list(names), "source": source}, ensure_ascii=False))
     weak = int(sum(1 for v in ev if abs(v) < LOW_CONF))
     return {"source": source, "low_confidence_words": weak}
+
+
+def _two_voices(E):
+    """Split embeddings into two voice centroids.
+
+    Agglomerative average-linkage happily answers "1109 windows and 1 outlier",
+    which reads as a single speaker and is how a two-person clip came out
+    entirely one colour. Cutting along the direction of greatest variation
+    gives two real groups to start from, then k-means settles where the border
+    belongs — it is free to end up lopsided, just not degenerate.
+    """
+    from sklearn.cluster import AgglomerativeClustering
+
+    def refine(lab):
+        c = np.zeros((2, E.shape[1]))
+        for _ in range(40):
+            for k in (0, 1):
+                sel = E[lab == k]
+                if len(sel) == 0:
+                    return None
+                m = sel.mean(0)
+                c[k] = m / np.linalg.norm(m)
+            nxt = (E @ c[1] > E @ c[0]).astype(int)
+            if (nxt == lab).all():
+                break
+            lab = nxt
+        return c
+
+    lab = AgglomerativeClustering(n_clusters=2, metric="cosine",
+                                  linkage="average").fit_predict(E)
+    small = min((lab == 0).sum(), (lab == 1).sum()) / len(lab)
+    if small < 0.05:                       # a handful of outliers, not a speaker
+        Xc = E - E.mean(0)
+        _, _, vt = np.linalg.svd(Xc, full_matrices=False)
+        proj = Xc @ vt[0]
+        lab = (proj > np.median(proj)).astype(int)
+
+    c = refine(lab)
+    if c is None:                          # everything collapsed into one voice
+        m = E.mean(0) / np.linalg.norm(E.mean(0))
+        return m, -m
+    return c[0], c[1]
 
 
 def _viterbi(ev, spans):
