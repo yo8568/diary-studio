@@ -398,7 +398,12 @@ def transcribe(pid: str):
         r = tr(p, _progress)
         r |= diarize.diarize(p, progress=_progress)
         _progress("整理輪次", 0.96)
-        captions.build_turns(p)
+        turns = captions.build_turns(p)
+        # compile them straight away: without this a freshly transcribed project
+        # has no cues, so the caption preview stays blank until the person
+        # presses 套用修改 — for changes they have not made yet
+        captions.save_turns(p, turns, p.names)
+        captions.build_cues(p)
         _progress("完成", 1.0)
         return r
 

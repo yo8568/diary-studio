@@ -110,6 +110,10 @@ def main():
             errs.append("處理過程沒有顯示任何階段名稱")
         if not rows:
             errs.append("沒有自動產生逐字稿")
+        cues = pg.evaluate("() => (window.CUES && CUES.cues) ? CUES.cues.length : 0")
+        print("字幕塊:", cues)
+        if rows and not cues:
+            errs.append("轉完逐字稿後沒有字幕可預覽（要按過套用修改才有）")
         if text and any(c in text for c in ",?!:;"):
             errs.append(f"逐字稿出現半形標點：{text[:30]}")
 
