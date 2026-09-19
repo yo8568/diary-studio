@@ -307,7 +307,7 @@ def transcribe(p: Project, progress=lambda s: None) -> dict:
               "end": round(w["end"], 3)}
              for seg in r.get("segments", []) for w in seg.get("words", [])]
 
-    words = _drop_silent(p, words)
+    words = _widen_punctuation(_drop_silent(p, words))
     words += _recover(p, words, mlx_whisper, progress)
     words.sort(key=lambda w: w["start"])
     words = _fix_degenerate(words)
@@ -321,6 +321,39 @@ def transcribe(p: Project, progress=lambda s: None) -> dict:
     p.path("transcript.json").write_text(
         json.dumps({"words": words}, ensure_ascii=False, indent=1))
     return {"words": len(words)}
+
+
+WIDE = {",": "，", ".": "。", "?": "？", "!": "！", ":": "：",
+        ";": "；", "(": "（", ")": "）"}
+CJK = re.compile(r"[\u3000-\u9fff\uff00-\uffef]")
+
+
+def _widen_punctuation(words: list[dict]) -> list[dict]:
+    """Half-width punctuation between Chinese reads as a typo; widen it.
+
+    Decided per character from its neighbours rather than wholesale, so "104,000"
+    and "v1.2" keep their own punctuation — only marks that actually sit in
+    Chinese get converted.
+    """
+    if not words:
+        return words
+    joined = "".join(w["text"] for w in words)
+    out = list(joined)
+    for i, ch in enumerate(joined):
+        if ch not in WIDE:
+            continue
+        prev = next((c for c in reversed(joined[:i]) if not c.isspace()), "")
+        nxt = next((c for c in joined[i + 1:] if not c.isspace()), "")
+        if CJK.match(prev) or CJK.match(nxt):
+            out[i] = WIDE[ch]
+    new = "".join(out)
+
+    at = 0
+    for w in words:
+        n = len(w["text"])
+        w["text"] = new[at:at + n]
+        at += n
+    return words
 
 
 def _drop_silent(p: Project, words: list[dict]) -> list[dict]:

@@ -110,6 +110,8 @@ def main():
             errs.append("處理過程沒有顯示任何階段名稱")
         if not rows:
             errs.append("沒有自動產生逐字稿")
+        if text and any(c in text for c in ",?!:;"):
+            errs.append(f"逐字稿出現半形標點：{text[:30]}")
 
         d = pg.evaluate("""() => {
             const v = document.querySelector('#vid');
